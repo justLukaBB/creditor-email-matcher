@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: creditor-email-matcher
+    env: python
+    region: frankfurt
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0
+      - key: LLM_PROVIDER
+        value: claude
+      - key: ANTHROPIC_MODEL
+        value: claude-3-haiku-20240307
+      # Secrets need to be added manually in Render dashboard:
+      # - MONGODB_URL
+      # - MONGODB_DATABASE
+      # - ANTHROPIC_API_KEY
+      # - DATABASE_URL (optional, for PostgreSQL)
+
+databases:
+  - name: creditor-matcher-db
+    databaseName: creditor_matcher
+    user: creditor_user
+    plan: free
