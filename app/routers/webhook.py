@@ -143,7 +143,7 @@ async def receive_webhook(
     return WebhookResponse(
         status="accepted",
         message="Email queued for processing",
-        email_id=incoming_email.id
+        email_id=email_id
     )
 
 
