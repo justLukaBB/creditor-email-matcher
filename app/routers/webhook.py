@@ -86,51 +86,58 @@ async def receive_webhook(
             logger.warning(f"Invalid webhook signature from {webhook_data.from_email}")
             raise HTTPException(status_code=401, detail="Invalid webhook signature")
 
-    # Step 2: Check for duplicate
-    if webhook_data.webhook_id:
-        existing = db.query(IncomingEmail).filter(
-            IncomingEmail.zendesk_webhook_id == webhook_data.webhook_id
-        ).first()
-        if existing:
-            logger.info(f"Duplicate webhook ignored: {webhook_data.webhook_id}")
-            return WebhookResponse(
-                status="duplicate",
-                message="Email already processed",
-                email_id=existing.id
-            )
+    email_id = None
 
-    # Step 3: Parse received_at with fallback
-    received_at = datetime.utcnow()  # Default to now
-    if webhook_data.received_at:
-        try:
-            # Try to parse various datetime formats
-            from dateutil import parser as date_parser
-            received_at = date_parser.parse(webhook_data.received_at)
-        except Exception as e:
-            logger.warning(f"Could not parse received_at '{webhook_data.received_at}': {e}, using current time")
+    # Step 2: Check for duplicate and store email (only if PostgreSQL is available)
+    if db is not None:
+        if webhook_data.webhook_id:
+            existing = db.query(IncomingEmail).filter(
+                IncomingEmail.zendesk_webhook_id == webhook_data.webhook_id
+            ).first()
+            if existing:
+                logger.info(f"Duplicate webhook ignored: {webhook_data.webhook_id}")
+                return WebhookResponse(
+                    status="duplicate",
+                    message="Email already processed",
+                    email_id=existing.id
+                )
 
-    # Step 4: Store incoming email
-    incoming_email = IncomingEmail(
-        zendesk_ticket_id=webhook_data.ticket_id.strip(),
-        zendesk_webhook_id=webhook_data.webhook_id,
-        from_email=webhook_data.from_email.strip(),
-        from_name=webhook_data.from_name.strip() if webhook_data.from_name else None,
-        subject=webhook_data.subject.strip() if webhook_data.subject else None,
-        raw_body_html=webhook_data.body_html,
-        raw_body_text=webhook_data.body_text,
-        received_at=received_at,
-        processing_status="received"
-    )
-    db.add(incoming_email)
-    db.commit()
-    db.refresh(incoming_email)
+        # Step 3: Parse received_at with fallback
+        received_at = datetime.utcnow()  # Default to now
+        if webhook_data.received_at:
+            try:
+                # Try to parse various datetime formats
+                from dateutil import parser as date_parser
+                received_at = date_parser.parse(webhook_data.received_at)
+            except Exception as e:
+                logger.warning(f"Could not parse received_at '{webhook_data.received_at}': {e}, using current time")
 
-    logger.info(f"Email stored - ID: {incoming_email.id}")
+        # Step 4: Store incoming email
+        incoming_email = IncomingEmail(
+            zendesk_ticket_id=webhook_data.ticket_id.strip(),
+            zendesk_webhook_id=webhook_data.webhook_id,
+            from_email=webhook_data.from_email.strip(),
+            from_name=webhook_data.from_name.strip() if webhook_data.from_name else None,
+            subject=webhook_data.subject.strip() if webhook_data.subject else None,
+            raw_body_html=webhook_data.body_html,
+            raw_body_text=webhook_data.body_text,
+            received_at=received_at,
+            processing_status="received"
+        )
+        db.add(incoming_email)
+        db.commit()
+        db.refresh(incoming_email)
+
+        email_id = incoming_email.id
+        logger.info(f"Email stored - ID: {email_id}")
+    else:
+        logger.info("PostgreSQL not configured - processing email directly without logging")
 
     # Step 5: Process email asynchronously
     background_tasks.add_task(
         process_incoming_email,
-        email_id=incoming_email.id
+        email_id=email_id,
+        webhook_data=webhook_data if email_id is None else None
     )
 
     return WebhookResponse(
@@ -140,7 +147,7 @@ async def receive_webhook(
     )
 
 
-async def process_incoming_email(email_id: int):
+async def process_incoming_email(email_id: int = None, webhook_data: ZendeskWebhookEmail = None):
     """
     Background task to process incoming email
 
@@ -150,38 +157,62 @@ async def process_incoming_email(email_id: int):
     3. Find matches using matching engine
     4. Store results
     5. Route based on confidence
+
+    Args:
+        email_id: PostgreSQL email ID (if available)
+        webhook_data: Raw webhook data (if PostgreSQL not available)
     """
-    # Create new DB session for background task
+    # Create new DB session for background task (if PostgreSQL available)
     from app.database import SessionLocal
-    db = SessionLocal()
+    db = SessionLocal() if SessionLocal is not None else None
 
     try:
-        # Load email
-        email = db.query(IncomingEmail).filter(IncomingEmail.id == email_id).first()
-        if not email:
-            logger.error(f"Email {email_id} not found")
-            return
+        # Load email data from PostgreSQL or webhook
+        if email_id is not None and db is not None:
+            # PostgreSQL mode - load from database
+            email = db.query(IncomingEmail).filter(IncomingEmail.id == email_id).first()
+            if not email:
+                logger.error(f"Email {email_id} not found")
+                return
 
-        logger.info(f"Processing email {email_id}")
-        email.processing_status = "parsing"
-        db.commit()
+            logger.info(f"Processing email {email_id}")
+            email.processing_status = "parsing"
+            db.commit()
+
+            # Extract data from database model
+            raw_body_html = email.raw_body_html
+            raw_body_text = email.raw_body_text
+            from_email = email.from_email
+            subject = email.subject
+            zendesk_ticket_id = email.zendesk_ticket_id
+        else:
+            # MongoDB-only mode - use webhook data directly
+            logger.info(f"Processing email from {webhook_data.from_email} (MongoDB-only mode)")
+            email = None  # No database record
+            raw_body_html = webhook_data.body_html
+            raw_body_text = webhook_data.body_text
+            from_email = webhook_data.from_email
+            subject = webhook_data.subject
+            zendesk_ticket_id = webhook_data.ticket_id
 
         # Step 1: Parse and clean email
         parsed = email_parser.parse_email(
-            html_body=email.raw_body_html,
-            text_body=email.raw_body_text
+            html_body=raw_body_html,
+            text_body=raw_body_text
         )
 
-        email.cleaned_body = parsed["cleaned_body"]
-        email.token_count_before = parsed["token_count_before"]
-        email.token_count_after = parsed["token_count_after"]
-        email.processing_status = "parsed"
-        db.commit()
+        if email is not None and db is not None:
+            email.cleaned_body = parsed["cleaned_body"]
+            email.token_count_before = parsed["token_count_before"]
+            email.token_count_after = parsed["token_count_after"]
+            email.processing_status = "parsed"
+            db.commit()
 
         # Step 2: Extract entities with LLM
-        logger.info(f"Extracting entities from email {email_id} using {settings.llm_provider}")
-        email.processing_status = "extracting"
-        db.commit()
+        logger.info(f"Extracting entities using {settings.llm_provider}")
+        if email is not None and db is not None:
+            email.processing_status = "extracting"
+            db.commit()
 
         # Choose LLM provider
         if settings.llm_provider == "claude":
@@ -191,32 +222,35 @@ async def process_incoming_email(email_id: int):
 
         extracted_entities = extractor.extract_entities(
             email_body=parsed["cleaned_body"],
-            from_email=email.from_email,
-            subject=email.subject
+            from_email=from_email,
+            subject=subject
         )
 
         # Store extracted data
-        email.extracted_data = extracted_entities.model_dump()
-        email.processing_status = "extracted"
-        db.commit()
+        if email is not None and db is not None:
+            email.extracted_data = extracted_entities.model_dump()
+            email.processing_status = "extracted"
+            db.commit()
 
         # Check if this is actually a creditor reply
         if not extracted_entities.is_creditor_reply:
-            logger.info(f"Email {email_id} is not a creditor reply - skipping matching")
-            email.processing_status = "not_creditor_reply"
-            email.match_status = "no_match"
-            db.commit()
+            logger.info(f"Email is not a creditor reply - skipping matching")
+            if email is not None and db is not None:
+                email.processing_status = "not_creditor_reply"
+                email.match_status = "no_match"
+                db.commit()
             return
 
         # Step 3: Match directly in MongoDB (skip PostgreSQL matching)
-        logger.info(f"Matching email {email_id} directly in MongoDB")
-        email.processing_status = "matching"
-        db.commit()
+        logger.info(f"Matching email directly in MongoDB")
+        if email is not None and db is not None:
+            email.processing_status = "matching"
+            db.commit()
 
         # Try to match directly in MongoDB
         client_name = extracted_entities.client_name
         creditor_name = extracted_entities.creditor_name
-        creditor_email = email.from_email
+        creditor_email = from_email
         new_debt_amount = extracted_entities.debt_amount
 
         # Check if we have the required data
@@ -260,8 +294,10 @@ async def process_incoming_email(email_id: int):
             )
 
             if mongodb_update_success:
-                email.match_status = "auto_matched"
-                email.match_confidence = 100
+                if email is not None and db is not None:
+                    email.match_status = "auto_matched"
+                    email.match_confidence = 100
+
                 logger.info(
                     f"✅ MongoDB updated successfully - "
                     f"Client: {client_name}, Creditor: {creditor_name}, Amount: {new_debt_amount}"
@@ -275,41 +311,48 @@ async def process_incoming_email(email_id: int):
                     old_debt_amount=None,  # We don't have the old amount from extracted data
                     new_debt_amount=new_debt_amount,
                     side_conversation_id="N/A",
-                    zendesk_ticket_id=email.zendesk_ticket_id,
+                    zendesk_ticket_id=zendesk_ticket_id,
                     reference_numbers=extracted_entities.reference_numbers,
                     confidence_score=1.0
                 )
             else:
-                email.match_status = "no_match"
+                if email is not None and db is not None:
+                    email.match_status = "no_match"
+
                 logger.warning(
                     f"MongoDB update failed - Client or creditor not found in MongoDB. "
                     f"Client: {client_name}, Creditor: {creditor_name}"
                 )
         else:
             # Missing required data for MongoDB update
-            email.match_status = "no_match"
+            if email is not None and db is not None:
+                email.match_status = "no_match"
+
             logger.warning(
                 f"Missing required data for MongoDB update - "
                 f"Client: {client_name}, Creditor: {creditor_name}, Amount: {new_debt_amount}"
             )
 
-        email.processing_status = "completed"
-        email.processed_at = datetime.utcnow()
-        email.matched_at = datetime.utcnow()
-        db.commit()
-
-        logger.info(f"Email {email_id} processing complete - Status: {email.match_status}")
-
-    except Exception as e:
-        logger.error(f"Error processing email {email_id}: {e}", exc_info=True)
-        email = db.query(IncomingEmail).filter(IncomingEmail.id == email_id).first()
-        if email:
-            email.processing_status = "failed"
-            email.processing_error = str(e)
+        if email is not None and db is not None:
+            email.processing_status = "completed"
+            email.processed_at = datetime.utcnow()
+            email.matched_at = datetime.utcnow()
             db.commit()
 
+        logger.info(f"Email processing complete - MongoDB-only mode" if email is None else f"Email {email_id} processing complete - Status: {email.match_status}")
+
+    except Exception as e:
+        logger.error(f"Error processing email: {e}", exc_info=True)
+        if email_id is not None and db is not None:
+            email = db.query(IncomingEmail).filter(IncomingEmail.id == email_id).first()
+            if email:
+                email.processing_status = "failed"
+                email.processing_error = str(e)
+                db.commit()
+
     finally:
-        db.close()
+        if db is not None:
+            db.close()
 
 
 @router.get("/status/{email_id}")

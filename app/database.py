@@ -36,11 +36,15 @@ def init_db():
 
 def get_db():
     """
-    Dependency for getting database session
+    Dependency for getting database session (optional)
     Usage: db: Session = Depends(get_db)
+
+    Returns None if PostgreSQL is not configured (MongoDB-only mode)
     """
     if SessionLocal is None:
-        raise RuntimeError("Database not initialized. Call init_db() first.")
+        logger.warning("PostgreSQL not configured - running in MongoDB-only mode")
+        yield None
+        return
 
     db = SessionLocal()
     try:
