@@ -1,0 +1,9 @@
+{
+  "ticket_id": "12345",
+  "subject": "Re: Anfrage Max Mustermann",
+  "from_email": "info@sparkasse-bochum.de",
+  "from_name": "Sparkasse Bochum",
+  "body_text": "Sehr geehrte Damen und Herren,\n\nbezüglich Herrn Max Mustermann können wir Ihnen mitteilen, dass die Forderung 1.234,56 EUR beträgt.\n\nAktenzeichen: AZ-12345\n\nMit freundlichen Grüßen\nSparkasse Bochum",
+  "received_at": "2024-01-07T10:00:00Z",
+  "webhook_id": "test-webhook-001"
+}

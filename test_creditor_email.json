@@ -1,0 +1,9 @@
+{
+  "ticket_id": "TEST-CLAUDE-001",
+  "subject": "Re: Anfrage Mustermann, Max - Forderung",
+  "from_email": "info@sparkasse-bochum.de",
+  "from_name": "Sparkasse Bochum Kundenservice",
+  "body_text": "Sehr geehrte Damen und Herren,\n\nbezüglich Ihres Mandanten Herrn Max Mustermann können wir Ihnen folgende Informationen mitteilen:\n\nDie offene Forderung beträgt EUR 1.234,56.\n\nAktenzeichen: AZ-2024-12345\nKundennummer: KD-98765\n\nFür Rückfragen stehen wir Ihnen gerne zur Verfügung.\n\nMit freundlichen Grüßen\nSparkasse Bochum\nKundenservice Forderungsmanagement",
+  "received_at": "2024-01-07T10:00:00Z",
+  "webhook_id": "test-claude-extraction-001"
+}

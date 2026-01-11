@@ -1,0 +1,14 @@
+{
+  "client_name": "Scuric, Luka",
+  "client_reference_number": "AZ-2024-001",
+  "creditor_name": "Test Gläubiger GmbH",
+  "creditor_email": "justlukax@gmail.com",
+  "creditor_address": "Teststraße 123, 10115 Berlin",
+  "debt_amount": 899.00,
+  "reference_numbers": ["232rf3"],
+  "zendesk_ticket_id": "22549",
+  "zendesk_side_conversation_id": "sc_test_001",
+  "sent_at": "2024-01-07T10:00:00Z",
+  "contact_status": "email_sent_with_document",
+  "document_url": "https://scuric.zendesk.com/attachments/test_doc.pdf"
+}
