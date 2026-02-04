@@ -2,7 +2,7 @@
 
 ## Overview
 
-The v2 upgrade transforms a fragile monolithic webhook handler into a production-grade multi-agent system. The journey begins by fixing dual-database consistency issues that caused the matching engine bypass, establishes async job infrastructure for 200+ daily emails, adds critical multi-format document extraction (PDFs, DOCX, images), applies German-specific processing, builds a validated three-agent pipeline, reconstructs the matching engine with explainability, calibrates confidence scoring, moves prompts to database management, hardens for production, and gradually migrates traffic with shadow mode validation. This is not a simple "add PDF support" upgrade — it requires distributed systems patterns for reliability at scale.
+The v2 upgrade transforms a fragile monolithic webhook handler into a production-grade multi-agent system. The journey begins by fixing dual-database consistency issues that caused the matching engine bypass, establishes async job infrastructure for 200+ daily emails, adds critical multi-format document extraction (PDFs, DOCX, images), applies German-specific processing, builds a validated three-agent pipeline, reconstructs the matching engine with explainability, calibrates confidence scoring, moves prompts to database management, hardens for production, and gradually migrates traffic with shadow mode validation. This is not a simple "add PDF support" upgrade -- it requires distributed systems patterns for reliability at scale.
 
 ## Phases
 
@@ -26,7 +26,7 @@ The v2 upgrade transforms a fragile monolithic webhook handler into a production
 ### Phase 1: Dual-Database Audit & Consistency
 **Goal**: PostgreSQL becomes single source of truth with saga pattern for dual-database writes, preventing the data inconsistencies that caused matching engine bypass.
 
-**Depends on**: Nothing (first phase — addresses root cause)
+**Depends on**: Nothing (first phase -- addresses root cause)
 
 **Requirements**: REQ-INFRA-01, REQ-INFRA-02, REQ-INFRA-03, REQ-MIGRATE-01
 
@@ -37,10 +37,13 @@ The v2 upgrade transforms a fragile monolithic webhook handler into a production
   4. Idempotency keys prevent duplicate writes when operations retry
   5. Audit shows existing mismatches quantified with recovery plan
 
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 01-01: TBD during planning
+- [ ] 01-01-PLAN.md -- Database models and Alembic migration for saga infrastructure
+- [ ] 01-02-PLAN.md -- DualDatabaseWriter saga pattern and webhook refactor
+- [ ] 01-03-PLAN.md -- Hourly reconciliation service with APScheduler
+- [ ] 01-04-PLAN.md -- Data consistency audit script and verification
 
 ---
 
@@ -53,7 +56,7 @@ Plans:
 
 **Success Criteria** (what must be TRUE):
   1. Email processing jobs survive worker crashes without data loss
-  2. Jobs transition through state machine (RECEIVED → QUEUED → PROCESSING → COMPLETED) with PostgreSQL tracking
+  2. Jobs transition through state machine (RECEIVED -> QUEUED -> PROCESSING -> COMPLETED) with PostgreSQL tracking
   3. Transient failures (Claude API rate limits, DB timeouts) retry with exponential backoff
   4. Worker memory remains stable on Render 512MB instances via max-tasks-per-child=50 and gc.collect()
   5. Zendesk webhook schema updated to include attachment URLs for download
@@ -80,7 +83,7 @@ Plans:
   3. DOCX and XLSX documents extract text and tables reliably
   4. Images (JPG, PNG) extract via Claude Vision with per-field confidence scores
   5. Key entities extracted: client_name, creditor_name, debt_amount, reference_numbers with confidence
-  6. Extended extraction captures: Forderungsaufschlüsselung, Bankdaten, Ratenzahlung when present
+  6. Extended extraction captures: Forderungsaufschluesselung, Bankdaten, Ratenzahlung when present
   7. Cost circuit breaker halts processing if daily token threshold exceeded
   8. Attachments stored in GCS with temp file cleanup after processing
 
@@ -103,7 +106,7 @@ Plans:
   2. Claude extraction prompts use German examples for German document types
   3. Number parsing respects de_DE locale (1.234,56 EUR interpreted correctly)
   4. Validation regexes catch malformed German names, addresses, postal codes
-  5. OCR post-processing corrects common errors (ii→ü, ss→ß)
+  5. OCR post-processing corrects common errors (ii->ue, ss->sz)
   6. IBAN/BIC validation includes checksum verification to catch OCR errors
 
 **Plans**: TBD
@@ -114,7 +117,7 @@ Plans:
 ---
 
 ### Phase 5: Multi-Agent Pipeline with Validation
-**Goal**: Three-agent architecture (Email Processing → Content Extraction → Consolidation) with validation layers prevents error propagation and enables independent agent scaling.
+**Goal**: Three-agent architecture (Email Processing -> Content Extraction -> Consolidation) with validation layers prevents error propagation and enables independent agent scaling.
 
 **Depends on**: Phase 3 (Content Extraction Agent requires extraction capabilities), Phase 4 (German handling needed for validation)
 
@@ -224,7 +227,7 @@ Plans:
 ---
 
 ### Phase 10: Gradual Migration & Cutover
-**Goal**: Shadow mode validates v2 accuracy against v1, gradual traffic cutover (10% → 50% → 100%) reduces risk, v1 remains fallback for 30 days.
+**Goal**: Shadow mode validates v2 accuracy against v1, gradual traffic cutover (10% -> 50% -> 100%) reduces risk, v1 remains fallback for 30 days.
 
 **Depends on**: Phase 9 (production readiness verified before traffic migration)
 
@@ -248,11 +251,11 @@ Plans:
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6 → 7 → 8 → 9 → 10
+Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Status | Completed |
 |-------|--------|-----------|
-| 1. Dual-Database Audit & Consistency | Not started | - |
+| 1. Dual-Database Audit & Consistency | Planning complete | - |
 | 2. Async Job Queue Infrastructure | Not started | - |
 | 3. Multi-Format Document Extraction | Not started | - |
 | 4. German Document Extraction & Validation | Not started | - |
@@ -295,7 +298,7 @@ Phase 4: German Document Extraction ---------> Phase 5: Multi-Agent Pipeline
                                                Phase 10: Gradual Migration & Cutover
 ```
 
-**Critical Path:** 1 → 2 → 3 → 5 → 6 → 7 → 8 → 9 → 10 (Phase 4 runs parallel to Phase 5 dependency)
+**Critical Path:** 1 -> 2 -> 3 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10 (Phase 4 runs parallel to Phase 5 dependency)
 
 ---
 
