@@ -36,6 +36,9 @@ bleach>=6.1.0
 # Structured Logging (Phase 1 - Saga Pattern)
 structlog>=24.1.0
 
+# Scheduling (Phase 1 - Reconciliation)
+apscheduler>=3.10.0
+
 # Development
 pytest>=7.4.0
 pytest-asyncio>=0.23.0
