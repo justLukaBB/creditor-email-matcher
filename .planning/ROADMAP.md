@@ -10,8 +10,8 @@ The v2 upgrade transforms a fragile monolithic webhook handler into a production
 - Integer phases (1-10): Planned v2.0 milestone work
 - Decimal phases (e.g., 3.1): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Dual-Database Audit & Consistency** - Fix PostgreSQL/MongoDB saga pattern to enable reliable matching
-- [ ] **Phase 2: Async Job Queue Infrastructure** - Dramatiq + Redis for reliable batch processing
+- [x] **Phase 1: Dual-Database Audit & Consistency** - Fix PostgreSQL/MongoDB saga pattern to enable reliable matching
+- [x] **Phase 2: Async Job Queue Infrastructure** - Dramatiq + Redis for reliable batch processing
 - [ ] **Phase 3: Multi-Format Document Extraction** - PyMuPDF + Claude Vision for PDFs, DOCX, XLSX, images
 - [ ] **Phase 4: German Document Extraction & Validation** - Umlaut handling, locale parsing, German prompts
 - [ ] **Phase 5: Multi-Agent Pipeline with Validation** - 3-agent architecture with validation layers
@@ -40,10 +40,10 @@ The v2 upgrade transforms a fragile monolithic webhook handler into a production
 **Plans**: 4 plans
 
 Plans:
-- [ ] 01-01-PLAN.md -- Database models and Alembic migration for saga infrastructure
-- [ ] 01-02-PLAN.md -- DualDatabaseWriter saga pattern and webhook refactor
-- [ ] 01-03-PLAN.md -- Hourly reconciliation service with APScheduler
-- [ ] 01-04-PLAN.md -- Data consistency audit script and verification
+- [x] 01-01-PLAN.md -- Database models and Alembic migration for saga infrastructure
+- [x] 01-02-PLAN.md -- DualDatabaseWriter saga pattern and webhook refactor
+- [x] 01-03-PLAN.md -- Hourly reconciliation service with APScheduler
+- [x] 01-04-PLAN.md -- Data consistency audit script and verification
 
 ---
 
@@ -64,10 +64,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 02-01-PLAN.md -- Dramatiq broker setup, config, worker entrypoint
-- [ ] 02-02-PLAN.md -- IncomingEmail state machine columns, webhook schema, migration
-- [ ] 02-03-PLAN.md -- Email processor actor and webhook refactor to enqueue
-- [ ] 02-04-PLAN.md -- Job status API, failure notifications, Procfile integration
+- [x] 02-01-PLAN.md -- Dramatiq broker setup, config, worker entrypoint
+- [x] 02-02-PLAN.md -- IncomingEmail state machine columns, webhook schema, migration
+- [x] 02-03-PLAN.md -- Email processor actor and webhook refactor to enqueue
+- [x] 02-04-PLAN.md -- Job status API, failure notifications, Procfile integration
 
 ---
 
@@ -258,8 +258,8 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Status | Completed |
 |-------|--------|-----------|
-| 1. Dual-Database Audit & Consistency | Planning complete | - |
-| 2. Async Job Queue Infrastructure | Planning complete | - |
+| 1. Dual-Database Audit & Consistency | Complete ✓ | 2026-02-04 |
+| 2. Async Job Queue Infrastructure | Complete ✓ | 2026-02-04 |
 | 3. Multi-Format Document Extraction | Not started | - |
 | 4. German Document Extraction & Validation | Not started | - |
 | 5. Multi-Agent Pipeline with Validation | Not started | - |
@@ -321,4 +321,4 @@ Phase 4: German Document Extraction ---------> Phase 5: Multi-Agent Pipeline
 
 ---
 
-*Last updated: 2026-02-04*
+*Last updated: 2026-02-04 — Phase 2 complete*
