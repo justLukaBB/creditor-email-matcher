@@ -11,32 +11,33 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 2 of 10 (Async Job Queue Infrastructure)
-Plan: 2 of 4 complete (02-01, 02-02 done)
-Status: In progress
-Last activity: 2026-02-04 — Completed 02-02-PLAN.md (Job state machine schema)
+Plan: 4 of 4 complete (Phase 2 COMPLETE)
+Status: Phase complete
+Last activity: 2026-02-04 — Completed 02-04-PLAN.md (API integration and deployment)
 
-Progress: [█████░░░░░] 15%
+Progress: [████████░░] 20%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 6
-- Average duration: 4.5 minutes
-- Total execution time: 0.45 hours
+- Total plans completed: 8
+- Average duration: 4.25 minutes
+- Total execution time: 0.57 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 | 4 | 21 min | 5.25 min |
-| 2 | 2 | 6 min | 3 min |
+| 2 | 4 | 13 min | 3.25 min |
 
 **Recent Trend:**
-- 01-03: 4 minutes (reconciliation service with APScheduler)
 - 01-04: 5 minutes (audit service with CLI script)
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
 - 02-02: 3 minutes (Job state machine database schema)
-- Trend: Schema/model updates ~3 min, infrastructure setup ~3-5 min, implementation with tests ~8 min
+- 02-03: 2 minutes (Email processor Dramatiq actor)
+- 02-04: 5 minutes (API integration and deployment)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, actor creation ~2 min
 
 *Updated after each plan completion*
 
@@ -96,26 +97,48 @@ Recent decisions affecting current work:
 - Composite index (processing_status, received_at) for efficient worker polling
 - ZendeskWebhookEmail schema accepts attachments field with URL, filename, content_type, size
 
+**New from 02-03:**
+- Email processor Dramatiq actor with max_retries=5 and exponential backoff (15s to 5min)
+- should_retry predicate for selective retry (transient vs permanent failures)
+- on_process_email_failure callback invokes notify_permanent_failure after all retries exhausted
+- State machine: received -> queued -> processing -> completed/failed/not_creditor_reply
+- FOR UPDATE SKIP LOCKED row locking prevents duplicate processing
+- gc.collect() after each job for 512MB memory constraint
+
+**New from 02-04:**
+- Job status REST API with no authentication (relies on Render internal networking)
+- Manual retry endpoint resets to "queued" status and increments retry_count
+- FailureNotifier uses app.config.settings for SMTP (separate from email_notifier)
+- Procfile runs web (uvicorn) + worker (dramatiq) processes for Render deployment
+- All routers (webhook, jobs) registered in FastAPI app
+- App version bumped to 0.3.0
+
 ### Pending Todos
 
+**Phase 2 Deployment Prerequisites:**
 - Install dependencies: `pip install -r requirements.txt` (includes dramatiq[redis]>=2.0.1, psutil>=5.9.0)
 - Set DATABASE_URL and MONGODB_URL environment variables
-- **NEW:** Add Redis add-on on Render and set REDIS_URL environment variable (see 02-01-SUMMARY.md)
+- Add Redis add-on on Render and set REDIS_URL environment variable (see 02-01-SUMMARY.md)
+- Set SMTP environment variables for failure notifications: SMTP_HOST, SMTP_PORT, SMTP_USERNAME, SMTP_PASSWORD, ADMIN_EMAIL (see 02-04-SUMMARY.md)
 - Run migration: `alembic upgrade head` (creates outbox_messages, idempotency_keys, reconciliation_reports tables + adds job state columns)
-- **NEW:** Consider CREATE INDEX CONCURRENTLY for production if incoming_emails table is large (see 02-02-SUMMARY.md)
+- Consider CREATE INDEX CONCURRENTLY for production if incoming_emails table is large (see 02-02-SUMMARY.md)
+- Deploy to Render with Procfile (starts web + worker processes)
+
+**Phase 1 Outstanding:**
 - Run baseline audit: `python scripts/audit_consistency.py --lookback-days 30` to establish current consistency state
-- Decision: Keep APScheduler for reconciliation or migrate to Dramatiq in Phase 2?
 - Tune reconciliation frequency based on production metrics (currently hourly)
 
 ### Blockers/Concerns
 
-**Phase 2 In Progress:** Plans 02-01 and 02-02 complete (broker infrastructure + job state schema). Ready for Plan 02-03 (enqueue worker and status update).
+**Phase 2 Complete:** All 4 plans executed (broker infrastructure, job state schema, email processor actor, API integration). Ready for production deployment and Phase 3 planning.
 
-**Production Deployment Required:** Phase 1 code complete but not deployed. Need to:
-1. Deploy to production environment
-2. Run baseline audit against production databases
-3. Address any high-severity mismatches before building Phase 2
-4. Verify reconciliation service runs successfully in production
+**Production Deployment Required:** Phases 1 and 2 code complete but not deployed. Need to:
+1. Deploy to production environment with Procfile
+2. Configure REDIS_URL and SMTP environment variables
+3. Run migration: `alembic upgrade head`
+4. Run baseline audit against production databases
+5. Verify webhook endpoint receives emails and enqueues to Dramatiq
+6. Verify failure notifications work (test with failed job)
 
 **Phase 3 Blocker:** Claude Vision API integration requires research-phase before detailed planning to verify:
 - Current token limits for images and PDFs
@@ -131,9 +154,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-04
-Stopped at: Completed 02-02-PLAN.md execution - Job state machine schema
+Stopped at: Completed 02-04-PLAN.md execution - API integration and deployment
 Resume file: None
 
 ---
 
-**Next action:** Continue Phase 2 with Plan 02-03 (Enqueue worker and status update)
+**Next action:** Phase 2 complete. Ready for Phase 3 planning (Content Extraction Agent). Requires research phase for Claude Vision API integration (token limits, image size restrictions, pricing, batch processing patterns).
