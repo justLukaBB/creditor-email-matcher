@@ -1,0 +1,42 @@
+# FastAPI Core
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+
+# Environment Variables
+python-dotenv>=1.0.0
+python-dateutil>=2.8.0
+
+# HTTP Client
+httpx>=0.26.0
+
+# Database
+sqlalchemy>=2.0.25
+psycopg[binary]>=3.3.0
+alembic>=1.13.0
+pymongo>=4.6.0
+
+# LLM APIs
+openai>=1.10.0
+anthropic>=0.39.0
+
+# Email Parsing & Cleaning
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
+html2text>=2024.2.0
+email-reply-parser>=0.5.0
+
+# Fuzzy Matching
+rapidfuzz>=3.6.0
+
+# Text Processing
+bleach>=6.1.0
+
+# Structured Logging (Phase 1 - Saga Pattern)
+structlog>=24.1.0
+
+# Development
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+faker>=22.0.0
