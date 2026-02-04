@@ -61,10 +61,13 @@ Plans:
   4. Worker memory remains stable on Render 512MB instances via max-tasks-per-child=50 and gc.collect()
   5. Zendesk webhook schema updated to include attachment URLs for download
 
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 02-01: TBD during planning
+- [ ] 02-01-PLAN.md -- Dramatiq broker setup, config, worker entrypoint
+- [ ] 02-02-PLAN.md -- IncomingEmail state machine columns, webhook schema, migration
+- [ ] 02-03-PLAN.md -- Email processor actor and webhook refactor to enqueue
+- [ ] 02-04-PLAN.md -- Job status API, failure notifications, Procfile integration
 
 ---
 
@@ -256,7 +259,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | Phase | Status | Completed |
 |-------|--------|-----------|
 | 1. Dual-Database Audit & Consistency | Planning complete | - |
-| 2. Async Job Queue Infrastructure | Not started | - |
+| 2. Async Job Queue Infrastructure | Planning complete | - |
 | 3. Multi-Format Document Extraction | Not started | - |
 | 4. German Document Extraction & Validation | Not started | - |
 | 5. Multi-Agent Pipeline with Validation | Not started | - |
