@@ -57,4 +57,4 @@ def setup_broker():
 broker = setup_broker()
 
 # Actor imports (registered with broker on import)
-# Actors will be imported here in Plan 03
+from app.actors import email_processor  # noqa: F401
