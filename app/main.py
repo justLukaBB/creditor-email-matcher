@@ -11,8 +11,8 @@ import structlog
 
 from app.config import settings
 from app.database import init_db
-# Note: routers will be added in later phases
-# from app.routers import webhook, inquiries
+from app.routers.webhook import router as webhook_router
+from app.routers.jobs import router as jobs_router
 
 # Structured Logging Setup
 structlog.configure(
@@ -28,13 +28,17 @@ logger = structlog.get_logger()
 app = FastAPI(
     title="Creditor Email Matcher",
     description="AI-gestützter Microservice für automatische Gläubiger-Email Zuordnung",
-    version="0.2.0",
+    version="0.3.0",
     docs_url="/docs" if settings.environment == "development" else None,
     redoc_url="/redoc" if settings.environment == "development" else None,
 )
 
 # APScheduler instance (module level)
 scheduler = BackgroundScheduler(timezone="Europe/Berlin")
+
+# Register routers
+app.include_router(webhook_router)
+app.include_router(jobs_router)
 
 
 def run_scheduled_reconciliation():
@@ -62,11 +66,6 @@ def run_scheduled_reconciliation():
 
     except Exception as e:
         logger.error("reconciliation_crashed", error=str(e), exc_info=True)
-
-
-# Include routers (to be added in later phases)
-# app.include_router(webhook.router)
-# app.include_router(inquiries.router)
 
 
 @app.on_event("startup")
@@ -107,7 +106,7 @@ async def root():
     """Root Endpoint"""
     return {
         "message": "Creditor Email Matcher API",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "status": "running"
     }
 
