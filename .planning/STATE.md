@@ -6,36 +6,37 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** Gläubiger-Antworten werden zuverlässig dem richtigen Mandanten und Gläubiger zugeordnet und die Forderungsdaten korrekt in die Datenbank geschrieben — ohne manuellen Aufwand.
 
-**Current focus:** Phase 1 - Dual-Database Audit & Consistency
+**Current focus:** Phase 2 - Async Job Queue Infrastructure
 
 ## Current Position
 
-Phase: 1 of 10 (Dual-Database Audit & Consistency)
-Plan: 4 of 4 complete (01-01, 01-02, 01-03, 01-04 done)
-Status: Phase complete
-Last activity: 2026-02-04 — Completed 01-04-PLAN.md (Data consistency audit script)
+Phase: 2 of 10 (Async Job Queue Infrastructure)
+Plan: 1 of 4 complete (02-01 done)
+Status: In progress
+Last activity: 2026-02-04 — Completed 02-01-PLAN.md (Broker infrastructure setup)
 
-Progress: [████░░░░░░] 10%
+Progress: [█████░░░░░] 12.5%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
-- Average duration: 5.25 minutes
-- Total execution time: 0.35 hours
+- Total plans completed: 5
+- Average duration: 4.8 minutes
+- Total execution time: 0.4 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 | 4 | 21 min | 5.25 min |
+| 2 | 1 | 3 min | 3 min |
 
 **Recent Trend:**
-- 01-01: 4 minutes (database models - fast, no DB operations)
 - 01-02: 8 minutes (dual-write saga implementation with tests)
 - 01-03: 4 minutes (reconciliation service with APScheduler)
 - 01-04: 5 minutes (audit service with CLI script)
-- Trend: Consistent ~4-5 min for implementation tasks, ~8 min when tests included
+- 02-01: 3 minutes (Dramatiq broker infrastructure setup)
+- Trend: Infrastructure setup tasks ~3-5 min, implementation with tests ~8 min
 
 *Updated after each plan completion*
 
@@ -81,10 +82,18 @@ Recent decisions affecting current work:
 - Recovery plan categorizes mismatches: re-sync, manual_review, stalled, no_action
 - Health score calculation: (total_checked - total_issues) / total_checked
 
+**New from 02-01:**
+- Dramatiq broker auto-switches: RedisBroker (production) or StubBroker (testing) based on redis_url
+- Redis namespace: creditor_matcher for key isolation
+- Worker configuration: 2 processes x 1 thread for Render 512MB memory budget
+- Settings extended with missing fields: environment, webhook_secret, llm_provider, SMTP settings
+- Worker entrypoint (app/worker.py) imports actors package for broker setup
+
 ### Pending Todos
 
-- Install dependencies: `pip install -r requirements.txt` (includes structlog>=24.1.0, apscheduler>=3.10.0)
+- Install dependencies: `pip install -r requirements.txt` (includes dramatiq[redis]>=2.0.1, psutil>=5.9.0)
 - Set DATABASE_URL and MONGODB_URL environment variables
+- **NEW:** Add Redis add-on on Render and set REDIS_URL environment variable (see 02-01-SUMMARY.md)
 - Run migration: `alembic upgrade head` (creates outbox_messages, idempotency_keys, reconciliation_reports tables)
 - Run baseline audit: `python scripts/audit_consistency.py --lookback-days 30` to establish current consistency state
 - Decision: Keep APScheduler for reconciliation or migrate to Dramatiq in Phase 2?
@@ -92,7 +101,7 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 1 Complete - Ready for Phase 2:** All Phase 1 plans completed. Dual-database saga infrastructure in place with reconciliation and audit capabilities.
+**Phase 2 In Progress:** Plan 02-01 complete (broker infrastructure). Ready for Plan 02-02 (database models for job state machine).
 
 **Production Deployment Required:** Phase 1 code complete but not deployed. Need to:
 1. Deploy to production environment
@@ -114,9 +123,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-04
-Stopped at: Completed 01-04-PLAN.md execution - data consistency audit script
+Stopped at: Completed 02-01-PLAN.md execution - Dramatiq broker infrastructure setup
 Resume file: None
 
 ---
 
-**Next action:** Phase 1 complete. Plan Phase 2 (Job Queue Infrastructure with Dramatiq + Redis)
+**Next action:** Continue Phase 2 with Plan 02-02 (Database models for job state machine)
