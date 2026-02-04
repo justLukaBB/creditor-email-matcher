@@ -11,30 +11,29 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 1 of 10 (Dual-Database Audit & Consistency)
-Plan: 3 of 4 complete (01-01, 01-02, 01-03 done)
+Plan: 2 of 4 complete
 Status: In progress
-Last activity: 2026-02-04 — Completed 01-03-PLAN.md (Hourly reconciliation service)
+Last activity: 2026-02-04 — Completed 01-02-PLAN.md (DualDatabaseWriter saga pattern)
 
-Progress: [███░░░░░░░] 7.5%
+Progress: [██░░░░░░░░] 5.0%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 3
-- Average duration: 5 minutes
-- Total execution time: 0.26 hours
+- Total plans completed: 2
+- Average duration: 4.5 minutes
+- Total execution time: 0.15 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 1 | 3 | 16 min | 5.3 min |
+| 1 | 2 | 9 min | 4.5 min |
 
 **Recent Trend:**
 - 01-01: 4 minutes (database models - fast, no DB operations)
-- 01-02: 8 minutes (dual-write saga implementation with tests)
-- 01-03: 4 minutes (reconciliation service with APScheduler)
-- Trend: Consistent ~4-5 min for implementation tasks, ~8 min when tests included
+- 01-02: 5 minutes (saga services - code generation)
+- Trend: Consistent velocity, no database operations yet
 
 *Updated after each plan completion*
 
@@ -60,23 +59,18 @@ Recent decisions affecting current work:
 - Manual migration over autogenerate (no DB connection available)
 
 **New from 01-02:**
-- DualDatabaseWriter saga pattern with transactional outbox
-- PostgreSQL writes complete before MongoDB writes attempted
-- IdempotencyService with PostgreSQL-backed key storage
-- Compensating transaction strategy: mark sync_status='failed' on MongoDB failure
-
-**New from 01-03:**
-- APScheduler for hourly reconciliation (lightweight, no separate worker process)
-- BackgroundScheduler (not AsyncIOScheduler) for synchronous SQLAlchemy/PyMongo
-- 48-hour lookback window for reconciliation comparison
-- Auto-repair strategy: PostgreSQL to MongoDB re-sync on mismatch
-- Manual reconciliation trigger endpoint for operational control
+- DualDatabaseWriter does NOT commit - caller controls transaction (atomic outbox + business data)
+- MongoDB write happens post-commit (compensatable, PostgreSQL is source of truth)
+- Idempotency key format: operation:aggregate_id:hash (SHA256 of JSON payload)
+- MongoDB-only fallback mode preserved for backward compatibility
+- Import mongodb_service singleton (reuse existing MongoDB client)
 
 ### Pending Todos
 
-- Set DATABASE_URL and MONGODB_URL environment variables before running reconciliation in production
-- Decision: Keep APScheduler for reconciliation or migrate to Dramatiq in Phase 2?
-- Tune reconciliation frequency based on production metrics (currently hourly)
+- Install dependencies: `pip install -r requirements.txt` (includes structlog>=24.1.0)
+- Set DATABASE_URL and MONGODB_URL environment variables
+- Run migration: `alembic upgrade head` (creates outbox_messages, idempotency_keys tables)
+- Copy missing service files from _existing-code/ if webhook runtime testing needed
 
 ### Blockers/Concerns
 
@@ -94,9 +88,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-04
-Stopped at: Completed 01-03-PLAN.md execution - hourly reconciliation service with APScheduler
+Stopped at: Completed 01-02-PLAN.md execution - DualDatabaseWriter saga pattern implemented
 Resume file: None
 
 ---
 
-**Next action:** Execute Plan 01-04 (Data consistency audit script) to complete Phase 1
+**Next action:** Execute Plan 01-03 (Reconciliation service) or Plan 01-04 (Data audit scripts)
