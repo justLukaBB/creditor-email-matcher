@@ -11,32 +11,32 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 2 of 10 (Async Job Queue Infrastructure)
-Plan: 1 of 4 complete (02-01 done)
+Plan: 2 of 4 complete (02-01, 02-02 done)
 Status: In progress
-Last activity: 2026-02-04 — Completed 02-01-PLAN.md (Broker infrastructure setup)
+Last activity: 2026-02-04 — Completed 02-02-PLAN.md (Job state machine schema)
 
-Progress: [█████░░░░░] 12.5%
+Progress: [█████░░░░░] 15%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 5
-- Average duration: 4.8 minutes
-- Total execution time: 0.4 hours
+- Total plans completed: 6
+- Average duration: 4.5 minutes
+- Total execution time: 0.45 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 1 | 4 | 21 min | 5.25 min |
-| 2 | 1 | 3 min | 3 min |
+| 2 | 2 | 6 min | 3 min |
 
 **Recent Trend:**
-- 01-02: 8 minutes (dual-write saga implementation with tests)
 - 01-03: 4 minutes (reconciliation service with APScheduler)
 - 01-04: 5 minutes (audit service with CLI script)
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
-- Trend: Infrastructure setup tasks ~3-5 min, implementation with tests ~8 min
+- 02-02: 3 minutes (Job state machine database schema)
+- Trend: Schema/model updates ~3 min, infrastructure setup ~3-5 min, implementation with tests ~8 min
 
 *Updated after each plan completion*
 
@@ -89,19 +89,27 @@ Recent decisions affecting current work:
 - Settings extended with missing fields: environment, webhook_secret, llm_provider, SMTP settings
 - Worker entrypoint (app/worker.py) imports actors package for broker setup
 
+**New from 02-02:**
+- IncomingEmail tracks job lifecycle: started_at, completed_at timestamps for async processing
+- retry_count column separate from sync_retry_count (job retries vs MongoDB sync retries)
+- attachment_urls JSON column stores Zendesk attachment metadata for Phase 3 processing
+- Composite index (processing_status, received_at) for efficient worker polling
+- ZendeskWebhookEmail schema accepts attachments field with URL, filename, content_type, size
+
 ### Pending Todos
 
 - Install dependencies: `pip install -r requirements.txt` (includes dramatiq[redis]>=2.0.1, psutil>=5.9.0)
 - Set DATABASE_URL and MONGODB_URL environment variables
 - **NEW:** Add Redis add-on on Render and set REDIS_URL environment variable (see 02-01-SUMMARY.md)
-- Run migration: `alembic upgrade head` (creates outbox_messages, idempotency_keys, reconciliation_reports tables)
+- Run migration: `alembic upgrade head` (creates outbox_messages, idempotency_keys, reconciliation_reports tables + adds job state columns)
+- **NEW:** Consider CREATE INDEX CONCURRENTLY for production if incoming_emails table is large (see 02-02-SUMMARY.md)
 - Run baseline audit: `python scripts/audit_consistency.py --lookback-days 30` to establish current consistency state
 - Decision: Keep APScheduler for reconciliation or migrate to Dramatiq in Phase 2?
 - Tune reconciliation frequency based on production metrics (currently hourly)
 
 ### Blockers/Concerns
 
-**Phase 2 In Progress:** Plan 02-01 complete (broker infrastructure). Ready for Plan 02-02 (database models for job state machine).
+**Phase 2 In Progress:** Plans 02-01 and 02-02 complete (broker infrastructure + job state schema). Ready for Plan 02-03 (enqueue worker and status update).
 
 **Production Deployment Required:** Phase 1 code complete but not deployed. Need to:
 1. Deploy to production environment
@@ -123,9 +131,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-04
-Stopped at: Completed 02-01-PLAN.md execution - Dramatiq broker infrastructure setup
+Stopped at: Completed 02-02-PLAN.md execution - Job state machine schema
 Resume file: None
 
 ---
 
-**Next action:** Continue Phase 2 with Plan 02-02 (Database models for job state machine)
+**Next action:** Continue Phase 2 with Plan 02-03 (Enqueue worker and status update)
