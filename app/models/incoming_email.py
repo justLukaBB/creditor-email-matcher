@@ -53,8 +53,13 @@ class IncomingEmail(Base):
     """
 
     # Processing Status
+    # State machine: received -> queued -> processing -> completed | failed
+    # received: webhook validated and email stored
+    # queued: enqueued to Dramatiq for async processing
+    # processing: worker picked up and is processing
+    # completed: successfully finished
+    # failed: permanently failed (all retries exhausted)
     processing_status = Column(String(50), default="received")
-    # Statuses: received, parsed, extracted, matched, failed
     processing_error = Column(Text, nullable=True)
 
     # Matching Information (populated after matching)
@@ -69,6 +74,13 @@ class IncomingEmail(Base):
     matched_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    # Job State Machine (Phase 2: Async Job Queue Infrastructure)
+    started_at = Column(DateTime(timezone=True), nullable=True)  # when worker began processing
+    completed_at = Column(DateTime(timezone=True), nullable=True)  # when processing finished
+    retry_count = Column(Integer, default=0, nullable=False)  # how many times Dramatiq has retried this job
+    attachment_urls = Column(JSON, nullable=True)  # list of attachment URLs from Zendesk webhook
+    # Example: [{"url": "https://...", "filename": "rechnung.pdf", "content_type": "application/pdf", "size": 12345}]
 
     # MongoDB Sync Tracking (Phase 1: Dual-Database Audit & Consistency)
     sync_status = Column(String(50), default='pending', nullable=False)
