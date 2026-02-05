@@ -11,18 +11,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 5 of 10 (Multi-Agent Pipeline Validation)
-Plan: 3 of 4 complete
+Plan: 4 of 5 complete
 Status: In progress
-Last activity: 2026-02-05 — Completed 05-03-PLAN.md (Agent 3 Consolidation)
+Last activity: 2026-02-05 — Completed 05-04-PLAN.md (Manual Review Queue Infrastructure)
 
 Progress: [████░░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 20
+- Total plans completed: 21
 - Average duration: 3.6 minutes
-- Total execution time: 1.2 hours
+- Total execution time: 1.3 hours
 
 **By Phase:**
 
@@ -32,7 +32,7 @@ Progress: [████░░░░░░] 50%
 | 2 | 4 | 13 min | 3.25 min |
 | 3 | 6 | 21 min | 3.5 min |
 | 4 | 4 | 13.5 min | 3.4 min |
-| 5 | 3 | 10.6 min | 3.5 min |
+| 5 | 4 | 15.4 min | 3.9 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -52,6 +52,7 @@ Progress: [████░░░░░░] 50%
 - 05-01: 4.0 minutes (Multi-agent pipeline foundation with JSONB checkpoints)
 - 05-02: 3.1 minutes (Agent 1 Intent Classification)
 - 05-03: 3.5 minutes (Agent 3 Consolidation with conflict detection)
+- 05-04: 4.8 minutes (Manual review queue infrastructure)
 - Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min
 
 *Updated after each plan completion*
@@ -235,6 +236,15 @@ Recent decisions affecting current work:
 - Case-insensitive name conflict comparison
 - Conflict detection as flagging mechanism, not blocking
 
+**New from 05-04:**
+- ManualReviewQueue model with claim tracking and resolution workflow
+- FOR UPDATE SKIP LOCKED for claim concurrency control
+- Priority mapping by review reason (manual_escalation=1, validation_failed=2, conflict=3, low_confidence=5)
+- Duplicate detection in enqueue_for_review (skip if unresolved item exists for same email_id)
+- Partial indexes on resolved_at for efficient pending/claimed queries
+- REST API with 6 endpoints: list, stats, claim, claim-next, resolve, email-detail
+- Review queue service helpers: enqueue_for_review, bulk_enqueue_for_review, enqueue_low_confidence_items
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -252,10 +262,11 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 5 In Progress:** Plans 05-01, 05-02, 05-03 complete. Agents 1 and 3 implemented.
+**Phase 5 In Progress:** Plans 05-01, 05-02, 05-03, 05-04 complete.
 - Agent 1 (Intent Classification): complete with rule-based fast path and Claude fallback
 - Agent 3 (Consolidation): complete with conflict detection and needs_review flagging
-- Next: Implement Agent 2 (Extraction) in plan 05-04 or pipeline orchestration in plan 05-05
+- Manual Review Queue: complete with claim concurrency and priority-based ordering
+- Next: Complete Phase 5 with plan 05-05 (End-to-End Integration)
 
 **Production Deployment Required:** Phases 1, 2, 3, and 4 code complete but not deployed. Need to:
 1. Deploy to production environment with Procfile
@@ -272,9 +283,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Completed 05-03-PLAN.md (Agent 3 Consolidation)
+Stopped at: Completed 05-04-PLAN.md (Manual Review Queue Infrastructure)
 Resume file: None
 
 ---
 
-**Next action:** Continue Phase 5 with `/gsd:execute-plan 05-04` (Agent 2) or `/gsd:execute-plan 05-05` (Pipeline Orchestration).
+**Next action:** Complete Phase 5 with `/gsd:execute-plan 05-05` (End-to-End Integration).
