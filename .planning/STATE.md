@@ -11,18 +11,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 7 of 10 (Confidence Scoring & Calibration)
-Plan: 3 of 4 complete
-Status: In progress
-Last activity: 2026-02-05 — Completed 07-03-PLAN.md (Calibration Data Collection)
+Plan: 4 of 4 complete
+Status: Phase complete
+Last activity: 2026-02-05 — Completed 07-04-PLAN.md (Pipeline Routing Integration)
 
-Progress: [██████▓░░░] 66.7%
+Progress: [███████░░░] 70.0%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 29
-- Average duration: 3.17 minutes
-- Total execution time: 1.78 hours
+- Total plans completed: 30
+- Average duration: 3.18 minutes
+- Total execution time: 1.84 hours
 
 **By Phase:**
 
@@ -34,7 +34,7 @@ Progress: [██████▓░░░] 66.7%
 | 4 | 4 | 13.5 min | 3.4 min |
 | 5 | 5 | 17.7 min | 3.5 min |
 | 6 | 5 | 14.5 min | 2.9 min |
-| 7 | 3 | 9.77 min | 3.26 min |
+| 7 | 4 | 13.25 min | 3.31 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -63,7 +63,8 @@ Progress: [██████▓░░░] 66.7%
 - 07-01: 3.85 minutes (Confidence dimension calculators and CalibrationSample model)
 - 07-02: 3.0 minutes (Overall confidence calculator and three-tier routing)
 - 07-03: 2.92 minutes (Calibration data collection from manual review resolutions)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.2 min
+- 07-04: 3.48 minutes (Pipeline routing integration)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min
 
 *Updated after each plan completion*
 
@@ -332,6 +333,16 @@ Recent decisions affecting current work:
 - Manual review resolve endpoint triggers calibration sample capture
 - Transactional consistency: resolution + calibration in same transaction
 
+**New from 07-04:**
+- Confidence routing integrated after MatchingEngineV2 in email processor
+- HIGH confidence (>0.85): auto-update database, log only, NO notification
+- MEDIUM confidence (0.6-0.85): auto-update database WITH notification to review team
+- LOW confidence (<0.6): route to manual review queue with 7-day expiration
+- Confidence dimensions stored as integers 0-100: extraction_confidence, overall_confidence, confidence_route
+- Confidence routing modifies existing matching status handling (enhances, not replaces)
+- LOW confidence can override auto_matched status and route to manual review
+- expiration_days parameter added to enqueue_for_review for low-confidence routing
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -349,12 +360,12 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 7 In Progress:** Plan 3 of 4 complete
+**Phase 7 Complete:** All 4 plans executed successfully
 - 07-01 Complete: Confidence dimension calculators and CalibrationSample model
 - 07-02 Complete: Overall confidence calculator and three-tier routing
 - 07-03 Complete: Calibration data collection from manual review resolutions
-- Next: 07-04 (Threshold calibration analyzer)
-- Migration required: `alembic upgrade head` to create calibration_samples table
+- 07-04 Complete: Pipeline routing integration
+- Migration required: `alembic upgrade head` to create calibration_samples table and confidence columns
 
 **Phase 6 Complete:** All 5 plans executed successfully, verified (6/6 must-haves satisfied)
 
@@ -383,9 +394,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Completed 07-03-PLAN.md (Calibration Data Collection)
+Stopped at: Completed 07-04-PLAN.md (Pipeline Routing Integration)
 Resume file: None
 
 ---
 
-**Next action:** Execute plan 07-02 (Routing Service) with `/gsd:execute-plan 07-02`.
+**Next action:** Phase 7 complete. Begin Phase 8 (Prompt Management) with `/gsd:phase 08-prompt-management`.
