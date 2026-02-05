@@ -10,19 +10,19 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 
 ## Current Position
 
-Phase: 2 of 10 (Async Job Queue Infrastructure) — VERIFIED ✓
-Plan: 4 of 4 complete
-Status: Phase complete — Goal verified (5/5 must-haves, 6/6 requirements)
-Last activity: 2026-02-04 — Phase 2 verified and complete
+Phase: 3 of 10 (Multi-Format Document Extraction)
+Plan: 2 of 5 complete
+Status: In progress
+Last activity: 2026-02-05 — Completed 03-02-PLAN.md (GCS storage client and format detection)
 
-Progress: [██░░░░░░░░] 20%
+Progress: [██░░░░░░░░] 22%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8
-- Average duration: 4.25 minutes
-- Total execution time: 0.57 hours
+- Total plans completed: 10
+- Average duration: 4.0 minutes
+- Total execution time: 0.67 hours
 
 **By Phase:**
 
@@ -30,6 +30,7 @@ Progress: [██░░░░░░░░] 20%
 |-------|-------|-------|----------|
 | 1 | 4 | 21 min | 5.25 min |
 | 2 | 4 | 13 min | 3.25 min |
+| 3 | 2 | 6 min | 3.0 min |
 
 **Recent Trend:**
 - 01-04: 5 minutes (audit service with CLI script)
@@ -37,6 +38,8 @@ Progress: [██░░░░░░░░] 20%
 - 02-02: 3 minutes (Job state machine database schema)
 - 02-03: 2 minutes (Email processor Dramatiq actor)
 - 02-04: 5 minutes (API integration and deployment)
+- 03-01: 3 minutes (Extraction result Pydantic models)
+- 03-02: 3 minutes (GCS storage client and format detection)
 - Trend: Schema/model updates ~3 min, API/integration work ~5 min, actor creation ~2 min
 
 *Updated after each plan completion*
@@ -113,6 +116,20 @@ Recent decisions affecting current work:
 - All routers (webhook, jobs) registered in FastAPI app
 - App version bumped to 0.3.0
 
+**New from 03-01:**
+- ExtractionResult Pydantic model for structured extraction output
+- FileExtractionResult for per-file extraction details
+- Confidence levels: LOW, MEDIUM, HIGH enum
+- Nested models: GesamtforderungComponents, ExtractedAmount
+
+**New from 03-02:**
+- GCSAttachmentHandler context manager auto-cleans temp files in finally block
+- Text-to-filesize ratio 0.01 threshold for scanned PDF detection
+- FileFormat enum: PDF, DOCX, XLSX, IMAGE_JPG, IMAGE_PNG, UNKNOWN
+- MIME type takes priority over file extension in format detection
+- Sample first 5 pages for large PDFs (performance optimization)
+- Graceful failure defaults to Claude Vision (is_scanned_pdf returns True on error)
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -153,10 +170,10 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-04
-Stopped at: Completed 02-04-PLAN.md execution - API integration and deployment
+Last session: 2026-02-05
+Stopped at: Completed 03-02-PLAN.md execution - GCS storage client and format detection
 Resume file: None
 
 ---
 
-**Next action:** Phase 2 verified ✓. Plan Phase 3 (Multi-Format Document Extraction). Requires research phase for Claude Vision API integration (token limits, image size restrictions, pricing, batch processing patterns).
+**Next action:** Continue Phase 3. Execute 03-03-PLAN.md (PDF extractor with PyMuPDF and Claude Vision fallback).
