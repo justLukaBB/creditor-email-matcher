@@ -20,6 +20,9 @@ from app.models.extraction_result import (
     ExtractedAmount,
     ExtractedEntity,
 )
+from app.services.extraction.german_preprocessor import GermanTextPreprocessor
+from app.services.extraction.german_parser import parse_german_amount
+from app.services.extraction.german_validator import GermanValidator
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +36,8 @@ class DOCXExtractor:
     """
 
     def __init__(self):
+        self.preprocessor = GermanTextPreprocessor()
+        self.validator = GermanValidator()
         # Amount patterns (same as EmailBodyExtractor)
         self.amount_patterns = [
             # Explicit Gesamtforderung (with flexible separator)
@@ -91,6 +96,9 @@ class DOCXExtractor:
                         all_text.append(row_text)
 
             combined_text = '\n'.join(all_text)
+
+            # NEW: Apply German preprocessing
+            combined_text = self.preprocessor.preprocess(combined_text)
 
             logger.info(
                 f"DOCXExtractor: extracted {paragraph_count} paragraphs, "
@@ -165,17 +173,21 @@ class DOCXExtractor:
                     else:
                         amount_str = groups[0]
 
-                    # Parse German number format: 1.234,56 -> 1234.56
-                    normalized = amount_str.replace('.', '').replace(',', '.')
-                    amount_value = float(normalized)
+                    # NEW: Use babel-based parser instead of manual replacement
+                    try:
+                        amount_value = parse_german_amount(amount_str)
+                    except ValueError:
+                        continue  # Skip unparseable amounts
 
                     if amount_value > 0:
+                        # Confidence: HIGH if German format detected (has comma decimal)
+                        has_german_decimal = ',' in amount_str and amount_str.index(',') > amount_str.rfind('.')
                         found_amounts.append({
                             'value': amount_value,
                             'raw': match.group(0),
-                            'confidence': 'HIGH' if ',' in amount_str else 'MEDIUM'
+                            'confidence': 'HIGH' if has_german_decimal else 'MEDIUM'
                         })
-                except ValueError:
+                except (ValueError, IndexError):
                     continue
 
         return found_amounts
@@ -194,7 +206,12 @@ class DOCXExtractor:
             if match:
                 name = match.group(1).strip()
                 name = re.sub(r'[,.\s]+$', '', name)
-                if len(name) > 3:
+
+                # NEW: Apply OCR correction to name fields
+                name = self.preprocessor.correct_name_field(name)
+
+                # NEW: Validate name format (REQ-GERMAN-04)
+                if len(name) > 3 and self.validator.validate_name(name):
                     if entity_type == 'client':
                         result.client_name = ExtractedEntity(
                             value=name,
@@ -206,4 +223,18 @@ class DOCXExtractor:
                             value=name,
                             entity_type="creditor_name",
                             confidence="MEDIUM"
+                        )
+                elif len(name) > 3:
+                    logger.debug(f"DOCX name '{name}' failed German format validation")
+                    if entity_type == 'client':
+                        result.client_name = ExtractedEntity(
+                            value=name,
+                            entity_type="client_name",
+                            confidence="LOW"
+                        )
+                    else:
+                        result.creditor_name = ExtractedEntity(
+                            value=name,
+                            entity_type="creditor_name",
+                            confidence="LOW"
                         )
