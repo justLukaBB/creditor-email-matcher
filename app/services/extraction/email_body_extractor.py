@@ -19,6 +19,9 @@ from app.models.extraction_result import (
     ExtractedAmount,
     ExtractedEntity,
 )
+from app.services.extraction.german_preprocessor import GermanTextPreprocessor
+from app.services.extraction.german_parser import parse_german_amount
+from app.services.extraction.german_validator import GermanValidator
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +35,8 @@ class EmailBodyExtractor:
     """
 
     def __init__(self):
+        self.preprocessor = GermanTextPreprocessor()
+        self.validator = GermanValidator()
         # Amount patterns ordered by specificity (most specific first)
         # Allow flexible text between keyword and amount (e.g., "beträgt", "von", ":")
         self.amount_patterns = [
@@ -71,8 +76,11 @@ class EmailBodyExtractor:
             logger.warning("EmailBodyExtractor: empty email body")
             return result
 
-        # Find all amounts in text
-        found_amounts = self._find_amounts(email_text)
+        # NEW: Apply German preprocessing (Unicode normalization + OCR correction)
+        preprocessed_text = self.preprocessor.preprocess(email_text)
+
+        # Find all amounts in preprocessed text
+        found_amounts = self._find_amounts(preprocessed_text)
 
         logger.info(f"EmailBodyExtractor: found {len(found_amounts)} amounts in email body")
 
@@ -92,7 +100,7 @@ class EmailBodyExtractor:
             )
 
         # Extract entity names
-        self._extract_names(email_text, result)
+        self._extract_names(preprocessed_text, result)
 
         return result
 
@@ -114,17 +122,21 @@ class EmailBodyExtractor:
                     else:
                         amount_str = groups[0]
 
-                    # Parse German number format: 1.234,56 -> 1234.56
-                    normalized = amount_str.replace('.', '').replace(',', '.')
-                    amount_value = float(normalized)
+                    # NEW: Use babel-based parser instead of manual replacement
+                    try:
+                        amount_value = parse_german_amount(amount_str)
+                    except ValueError:
+                        continue  # Skip unparseable amounts
 
                     if amount_value > 0:
+                        # Confidence: HIGH if German format detected (has comma decimal)
+                        has_german_decimal = ',' in amount_str and amount_str.index(',') > amount_str.rfind('.')
                         found_amounts.append({
                             'value': amount_value,
                             'raw': match.group(0),
-                            'confidence': 'HIGH' if ',' in amount_str else 'MEDIUM'
+                            'confidence': 'HIGH' if has_german_decimal else 'MEDIUM'
                         })
-                except ValueError:
+                except (ValueError, IndexError):
                     continue
 
         return found_amounts
@@ -148,7 +160,12 @@ class EmailBodyExtractor:
                 name = match.group(1).strip()
                 # Filter out too-short matches and clean trailing punctuation
                 name = re.sub(r'[,.\s]+$', '', name)
-                if len(name) > 3:
+
+                # NEW: Apply OCR correction to name fields only
+                name = self.preprocessor.correct_name_field(name)
+
+                # NEW: Validate name format before accepting (REQ-GERMAN-04)
+                if len(name) > 3 and self.validator.validate_name(name):
                     if entity_type == 'client':
                         result.client_name = ExtractedEntity(
                             value=name,
@@ -163,3 +180,18 @@ class EmailBodyExtractor:
                             confidence="MEDIUM"
                         )
                         logger.debug(f"EmailBodyExtractor: found creditor_name: {name}")
+                elif len(name) > 3:
+                    # Name failed validation - log but still include with lower confidence
+                    logger.debug(f"Name '{name}' failed German format validation")
+                    if entity_type == 'client':
+                        result.client_name = ExtractedEntity(
+                            value=name,
+                            entity_type="client_name",
+                            confidence="LOW"
+                        )
+                    else:
+                        result.creditor_name = ExtractedEntity(
+                            value=name,
+                            entity_type="creditor_name",
+                            confidence="LOW"
+                        )
