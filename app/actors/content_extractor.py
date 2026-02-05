@@ -252,45 +252,135 @@ class ContentExtractionService:
 def extract_content(
     email_id: int,
     email_body: Optional[str],
-    attachment_urls: Optional[List[Dict[str, Any]]]
+    attachment_urls: Optional[List[Dict[str, Any]]],
+    intent_result: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
-    Dramatiq actor for content extraction.
+    Dramatiq actor for content extraction (Agent 2).
 
-    Called by email_processor actor after initial validation.
+    Called by email_processor after Agent 1 intent classification.
+
+    Pipeline checkpoints:
+    - Checks for existing agent_2_extraction checkpoint (skip-on-retry)
+    - Skips extraction for auto_reply and spam intents
+    - Checks Agent 1 confidence threshold before extraction
+    - Saves checkpoint after successful extraction
 
     Args:
         email_id: IncomingEmail.id for logging
         email_body: Cleaned email body text
         attachment_urls: List of attachment metadata
+        intent_result: Optional Agent 1 intent classification result with:
+            - intent: str (EmailIntent value)
+            - confidence: float
+            - skip_extraction: bool
+            - needs_review: bool
 
     Returns:
-        Dict representation of ConsolidatedExtractionResult
+        Dict representation of ConsolidatedExtractionResult + needs_review flag
     """
-    logger.info("extract_content_started", email_id=email_id)
+    logger.info("extract_content_started", email_id=email_id,
+                has_intent=bool(intent_result))
 
-    # Get Redis client from broker if available
-    redis_client = None
-    if settings.redis_url:
-        import redis
-        redis_client = redis.from_url(settings.redis_url)
+    # Lazy imports to avoid circular dependencies
+    from app.database import SessionLocal
+    from app.services.validation import (
+        has_valid_checkpoint,
+        get_checkpoint,
+        save_checkpoint
+    )
 
-    service = ContentExtractionService(redis_client=redis_client)
-
+    db = SessionLocal()
     try:
+        # Step 1: Check for existing checkpoint (skip-on-retry pattern)
+        if has_valid_checkpoint(db, email_id, "agent_2_extraction"):
+            logger.info("extraction_checkpoint_exists", email_id=email_id)
+            checkpoint = get_checkpoint(db, email_id, "agent_2_extraction")
+
+            # Return cached result
+            return {
+                "gesamtforderung": checkpoint.get("gesamtforderung"),
+                "client_name": checkpoint.get("client_name"),
+                "creditor_name": checkpoint.get("creditor_name"),
+                "confidence": checkpoint.get("confidence"),
+                "sources_processed": checkpoint.get("sources_processed", 0),
+                "sources_with_amount": checkpoint.get("sources_with_amount", 0),
+                "total_tokens_used": checkpoint.get("total_tokens_used", 0),
+                "source_results": checkpoint.get("source_results", []),
+                "needs_review": checkpoint.get("needs_review", False)
+            }
+
+        # Step 2: Check intent and skip extraction for auto_reply/spam
+        needs_review = False
+        if intent_result:
+            intent = intent_result.get("intent", "")
+            skip_extraction = intent_result.get("skip_extraction", False)
+            agent1_confidence = intent_result.get("confidence", 1.0)
+
+            # Skip extraction for auto_reply and spam (USER DECISION)
+            if skip_extraction or intent in ("auto_reply", "spam"):
+                logger.info("skipping_extraction_for_intent",
+                           email_id=email_id,
+                           intent=intent,
+                           skip_extraction=skip_extraction)
+
+                # Return minimal result - no extraction needed
+                skip_result = {
+                    "gesamtforderung": None,
+                    "client_name": None,
+                    "creditor_name": None,
+                    "confidence": "LOW",
+                    "sources_processed": 0,
+                    "sources_with_amount": 0,
+                    "total_tokens_used": 0,
+                    "source_results": [],
+                    "needs_review": False,
+                    "skipped_reason": f"intent_{intent}"
+                }
+
+                # Save checkpoint
+                save_checkpoint(db, email_id, "agent_2_extraction", skip_result)
+
+                return skip_result
+
+            # Step 3: Check Agent 1 confidence threshold (REQ-PIPELINE-06)
+            confidence_threshold = 0.7
+            if agent1_confidence < confidence_threshold:
+                logger.warning("low_confidence_from_agent1",
+                              email_id=email_id,
+                              confidence=agent1_confidence,
+                              threshold=confidence_threshold)
+                needs_review = True
+
+        # Step 4: Run extraction
+        # Get Redis client from broker if available
+        redis_client = None
+        if settings.redis_url:
+            import redis
+            redis_client = redis.from_url(settings.redis_url)
+
+        service = ContentExtractionService(redis_client=redis_client)
         result = service.extract_all(email_body, attachment_urls)
 
         logger.info("extract_content_completed",
             email_id=email_id,
             amount=result.gesamtforderung,
             confidence=result.confidence,
-            tokens=result.total_tokens_used)
+            tokens=result.total_tokens_used,
+            needs_review=needs_review)
 
-        # Return as dict for serialization
-        return result.model_dump()
+        # Step 5: Prepare result dict with needs_review flag
+        result_dict = result.model_dump()
+        result_dict["needs_review"] = needs_review
+
+        # Step 6: Save checkpoint after successful extraction
+        save_checkpoint(db, email_id, "agent_2_extraction", result_dict)
+
+        return result_dict
 
     except Exception as e:
         logger.error("extract_content_failed", email_id=email_id, error=str(e))
         raise
     finally:
+        db.close()
         gc.collect()
