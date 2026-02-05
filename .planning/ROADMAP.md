@@ -143,10 +143,14 @@ Plans:
   6. Checkpoint system saves intermediate results per agent for replay and debugging
   7. Conflict detection flags when extracted data contradicts existing database records
 
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] 05-01: TBD during planning
+- [ ] 05-01-PLAN.md -- Foundation: checkpoint storage, intent models, validation services
+- [ ] 05-02-PLAN.md -- Agent 1: Intent classifier with rule-based + LLM fallback
+- [ ] 05-03-PLAN.md -- Agent 3: Consolidation agent with conflict detection
+- [ ] 05-04-PLAN.md -- Manual review queue model and REST API
+- [ ] 05-05-PLAN.md -- Pipeline integration: orchestrate 3 agents with validation
 
 ---
 
@@ -266,11 +270,11 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 
 | Phase | Status | Completed |
 |-------|--------|-----------|
-| 1. Dual-Database Audit & Consistency | Complete ✓ | 2026-02-04 |
-| 2. Async Job Queue Infrastructure | Complete ✓ | 2026-02-04 |
-| 3. Multi-Format Document Extraction | Complete ✓ | 2026-02-05 |
-| 4. German Document Extraction & Validation | Complete ✓ | 2026-02-05 |
-| 5. Multi-Agent Pipeline with Validation | Not started | - |
+| 1. Dual-Database Audit & Consistency | Complete | 2026-02-04 |
+| 2. Async Job Queue Infrastructure | Complete | 2026-02-04 |
+| 3. Multi-Format Document Extraction | Complete | 2026-02-05 |
+| 4. German Document Extraction & Validation | Complete | 2026-02-05 |
+| 5. Multi-Agent Pipeline with Validation | Planned | - |
 | 6. Matching Engine Reconstruction | Not started | - |
 | 7. Confidence Scoring & Calibration | Not started | - |
 | 8. Database-Backed Prompt Management | Not started | - |
@@ -329,4 +333,4 @@ Phase 4: German Document Extraction ---------> Phase 5: Multi-Agent Pipeline
 
 ---
 
-*Last updated: 2026-02-05 — Phase 4 complete (4 plans executed)*
+*Last updated: 2026-02-05 — Phase 5 planned (5 plans in 3 waves)*
