@@ -141,14 +141,14 @@
 | REQ-GERMAN-04 | Phase 4 | Complete |
 | REQ-GERMAN-05 | Phase 4 | Complete |
 | REQ-GERMAN-06 | Phase 4 | Deferred (out of scope) |
-| REQ-PIPELINE-01 | Phase 5 | Pending |
-| REQ-PIPELINE-02 | Phase 5 | Pending |
-| REQ-PIPELINE-03 | Phase 5 | Pending |
-| REQ-PIPELINE-04 | Phase 5 | Pending |
-| REQ-PIPELINE-05 | Phase 5 | Pending |
-| REQ-PIPELINE-06 | Phase 5 | Pending |
-| REQ-PIPELINE-07 | Phase 5 | Pending |
-| REQ-PIPELINE-08 | Phase 5 | Pending |
+| REQ-PIPELINE-01 | Phase 5 | Complete |
+| REQ-PIPELINE-02 | Phase 5 | Complete |
+| REQ-PIPELINE-03 | Phase 5 | Complete |
+| REQ-PIPELINE-04 | Phase 5 | Complete |
+| REQ-PIPELINE-05 | Phase 5 | Complete |
+| REQ-PIPELINE-06 | Phase 5 | Complete |
+| REQ-PIPELINE-07 | Phase 5 | Complete |
+| REQ-PIPELINE-08 | Phase 5 | Complete |
 | REQ-MATCH-01 | Phase 6 | Pending |
 | REQ-MATCH-02 | Phase 6 | Pending |
 | REQ-MATCH-03 | Phase 6 | Pending |
@@ -198,4 +198,4 @@
 ---
 
 *Generated from research synthesis on 2026-02-04*
-*Traceability updated: 2026-02-05 — Phase 4 requirements marked Complete (REQ-GERMAN-06 deferred: out of scope)*
+*Traceability updated: 2026-02-05 — Phase 5 requirements marked Complete (REQ-PIPELINE-01 through REQ-PIPELINE-08)*

@@ -14,7 +14,7 @@ The v2 upgrade transforms a fragile monolithic webhook handler into a production
 - [x] **Phase 2: Async Job Queue Infrastructure** - Dramatiq + Redis for reliable batch processing
 - [x] **Phase 3: Multi-Format Document Extraction** - PyMuPDF + Claude Vision for PDFs, DOCX, XLSX, images
 - [x] **Phase 4: German Document Extraction & Validation** - Umlaut handling, locale parsing, German prompts
-- [ ] **Phase 5: Multi-Agent Pipeline with Validation** - 3-agent architecture with validation layers
+- [x] **Phase 5: Multi-Agent Pipeline with Validation** - 3-agent architecture with validation layers
 - [ ] **Phase 6: Matching Engine Reconstruction** - Rebuild bypassed engine with explainability
 - [ ] **Phase 7: Confidence Scoring & Calibration** - Separate dimensions, threshold tuning, routing
 - [ ] **Phase 8: Database-Backed Prompt Management** - Versioned prompts with performance tracking
@@ -146,11 +146,11 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
-- [ ] 05-01-PLAN.md -- Foundation: checkpoint storage, intent models, validation services
-- [ ] 05-02-PLAN.md -- Agent 1: Intent classifier with rule-based + LLM fallback
-- [ ] 05-03-PLAN.md -- Agent 3: Consolidation agent with conflict detection
-- [ ] 05-04-PLAN.md -- Manual review queue model and REST API
-- [ ] 05-05-PLAN.md -- Pipeline integration: orchestrate 3 agents with validation
+- [x] 05-01-PLAN.md -- Foundation: checkpoint storage, intent models, validation services
+- [x] 05-02-PLAN.md -- Agent 1: Intent classifier with rule-based + LLM fallback
+- [x] 05-03-PLAN.md -- Agent 3: Consolidation agent with conflict detection
+- [x] 05-04-PLAN.md -- Manual review queue model and REST API
+- [x] 05-05-PLAN.md -- Pipeline integration: orchestrate 3 agents with validation
 
 ---
 
@@ -274,7 +274,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 2. Async Job Queue Infrastructure | Complete | 2026-02-04 |
 | 3. Multi-Format Document Extraction | Complete | 2026-02-05 |
 | 4. German Document Extraction & Validation | Complete | 2026-02-05 |
-| 5. Multi-Agent Pipeline with Validation | Planned | - |
+| 5. Multi-Agent Pipeline with Validation | Complete | 2026-02-05 |
 | 6. Matching Engine Reconstruction | Not started | - |
 | 7. Confidence Scoring & Calibration | Not started | - |
 | 8. Database-Backed Prompt Management | Not started | - |
