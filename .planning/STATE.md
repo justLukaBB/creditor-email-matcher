@@ -20,9 +20,9 @@ Progress: [███░░░░░░░] 31%
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 11
+- Total plans completed: 12
 - Average duration: 4.0 minutes
-- Total execution time: 0.73 hours
+- Total execution time: 0.80 hours
 
 **By Phase:**
 
@@ -30,7 +30,7 @@ Progress: [███░░░░░░░] 31%
 |-------|-------|-------|----------|
 | 1 | 4 | 21 min | 5.25 min |
 | 2 | 4 | 13 min | 3.25 min |
-| 3 | 3 | 10 min | 3.3 min |
+| 3 | 4 | 14 min | 3.5 min |
 
 **Recent Trend:**
 - 01-04: 5 minutes (audit service with CLI script)
@@ -41,6 +41,7 @@ Progress: [███░░░░░░░] 31%
 - 03-01: 3 minutes (Extraction result Pydantic models)
 - 03-02: 3 minutes (GCS storage client and format detection)
 - 03-03: 4 minutes (PDF extractor with PyMuPDF and Claude Vision)
+- 03-04: 4 minutes (Email body, DOCX, XLSX extractors)
 - Trend: Schema/model updates ~3 min, API/integration work ~5 min, extractor creation ~3-4 min
 
 *Updated after each plan completion*
@@ -140,6 +141,14 @@ Recent decisions affecting current work:
 - German currency parsing: 1.234,56 EUR -> 1234.56
 - extraction_method now includes "skipped" for error handling
 
+**New from 03-04:**
+- EmailBodyExtractor with flexible regex patterns for German amount formats
+- DOCXExtractor extracts from paragraphs and tables using python-docx
+- XLSXExtractor with read_only=True for memory-efficient extraction
+- Keyword-adjacent-cell pattern for XLSX amount detection
+- All extractors return consistent SourceExtractionResult with tokens_used=0
+- Confidence scoring: HIGH for German format (has comma), MEDIUM otherwise
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -181,9 +190,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Completed 03-03-PLAN.md execution - PDF extractor with PyMuPDF and Claude Vision
+Stopped at: Completed 03-04-PLAN.md execution - Email body, DOCX, XLSX extractors
 Resume file: None
 
 ---
 
-**Next action:** Continue Phase 3. Execute 03-04-PLAN.md (Email body extractor) or 03-05-PLAN.md (DOCX/XLSX extractor).
+**Next action:** Continue Phase 3. Execute 03-05-PLAN.md (Image extractor with Claude Vision) or 03-06-PLAN.md (Extraction orchestration).
