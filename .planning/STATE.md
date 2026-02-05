@@ -6,23 +6,23 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** Gläubiger-Antworten werden zuverlässig dem richtigen Mandanten und Gläubiger zugeordnet und die Forderungsdaten korrekt in die Datenbank geschrieben — ohne manuellen Aufwand.
 
-**Current focus:** Phase 3 - Multi-Format Document Extraction
+**Current focus:** Phase 3 - Multi-Format Document Extraction (COMPLETE)
 
 ## Current Position
 
 Phase: 3 of 10 (Multi-Format Document Extraction)
-Plan: 5 of 6 complete
-Status: In progress
-Last activity: 2026-02-05 — Completed 03-05-PLAN.md (Image extractor and consolidator)
+Plan: 6 of 6 complete
+Status: Phase complete
+Last activity: 2026-02-05 — Completed 03-06-PLAN.md (Extraction orchestration)
 
-Progress: [███░░░░░░░] 33%
+Progress: [████░░░░░░] 40%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 13
+- Total plans completed: 14
 - Average duration: 3.9 minutes
-- Total execution time: 0.85 hours
+- Total execution time: 0.9 hours
 
 **By Phase:**
 
@@ -30,7 +30,7 @@ Progress: [███░░░░░░░] 33%
 |-------|-------|-------|----------|
 | 1 | 4 | 21 min | 5.25 min |
 | 2 | 4 | 13 min | 3.25 min |
-| 3 | 5 | 17 min | 3.4 min |
+| 3 | 6 | 21 min | 3.5 min |
 
 **Recent Trend:**
 - 01-04: 5 minutes (audit service with CLI script)
@@ -43,6 +43,7 @@ Progress: [███░░░░░░░] 33%
 - 03-03: 4 minutes (PDF extractor with PyMuPDF and Claude Vision)
 - 03-04: 4 minutes (Email body, DOCX, XLSX extractors)
 - 03-05: 3 minutes (Image extractor and consolidator)
+- 03-06: 4 minutes (Extraction orchestration and email processor integration)
 - Trend: Schema/model updates ~3 min, API/integration work ~5 min, extractor creation ~3-4 min
 
 *Updated after each plan completion*
@@ -160,6 +161,16 @@ Recent decisions affecting current work:
 - Amount deduplication within 1 EUR threshold
 - Best name selection: HIGH confidence first, then longest name
 
+**New from 03-06:**
+- ContentExtractionService orchestrates all extractors (email body + attachments)
+- extract_content Dramatiq actor with max_retries=3 and exponential backoff
+- Attachment processing priority: PDF > DOCX > XLSX > images (highest info density first)
+- Circuit breaker check before extraction (fail fast if daily limit exceeded)
+- Email processor integrates Phase 3 extraction after parsing step
+- Merged extraction schema: Phase 3 debt_amount + entity extraction is_creditor_reply
+- extraction_metadata tracks sources_processed, sources_with_amount, total_tokens_used
+- Backward-compatible extracted_data schema maintained for downstream compatibility
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -177,22 +188,15 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 2 Complete:** All 4 plans executed (broker infrastructure, job state schema, email processor actor, API integration). Ready for production deployment and Phase 3 planning.
+**Phase 3 Complete:** All 6 plans executed (extraction models, GCS storage, PDF extractor, email/DOCX/XLSX extractors, image extractor + consolidator, extraction orchestration). Ready for Phase 4 (German Text Processing).
 
-**Production Deployment Required:** Phases 1 and 2 code complete but not deployed. Need to:
+**Production Deployment Required:** Phases 1, 2, and 3 code complete but not deployed. Need to:
 1. Deploy to production environment with Procfile
 2. Configure REDIS_URL and SMTP environment variables
 3. Run migration: `alembic upgrade head`
 4. Run baseline audit against production databases
 5. Verify webhook endpoint receives emails and enqueues to Dramatiq
 6. Verify failure notifications work (test with failed job)
-
-**Phase 3 Blocker:** Claude Vision API integration requires research-phase before detailed planning to verify:
-- Current token limits for images and PDFs
-- Image size restrictions
-- Batch processing patterns
-- Current pricing (2026 rates)
-- Page-by-page processing best practices
 
 **Production Risk:** Render 512MB memory limits require careful worker configuration (max-tasks-per-child, gc.collect()) to prevent OOM kills during PDF processing.
 
@@ -201,9 +205,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Completed 03-05-PLAN.md execution - Image extractor and consolidator
+Stopped at: Completed 03-06-PLAN.md execution - Extraction orchestration (Phase 3 complete)
 Resume file: None
 
 ---
 
-**Next action:** Continue Phase 3. Execute 03-06-PLAN.md (Extraction orchestration) to complete Phase 3.
+**Next action:** Begin Phase 4 planning (German Text Processing). Create context and research files for reference number extraction and German-specific text normalization.
