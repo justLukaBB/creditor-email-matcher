@@ -11,6 +11,7 @@ from app.models.manual_review import ManualReviewQueue
 from app.models.matching_config import MatchingThreshold
 from app.models.creditor_inquiry import CreditorInquiry
 from app.models.match_result import MatchResult
+from app.models.calibration_sample import CalibrationSample
 
 __all__ = [
     "IncomingEmail",
@@ -23,4 +24,5 @@ __all__ = [
     "MatchingThreshold",
     "CreditorInquiry",
     "MatchResult",
+    "CalibrationSample",
 ]
