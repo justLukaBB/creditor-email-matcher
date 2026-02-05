@@ -174,11 +174,12 @@ Recent decisions affecting current work:
 - Backward-compatible extracted_data schema maintained for downstream compatibility
 
 **New from 04-01:**
-- German spell checker using pyspellchecker library (de_DE dictionary)
-- suggest_corrections() returns dict of misspelled words with suggestions
-- correct_text() auto-corrects known misspellings inline
-- add_custom_word() for domain vocabulary (creditor names, legal terms)
-- Thread-safe lazy initialization of spell checker dictionary
+- GermanTextPreprocessor with Unicode NFKC normalization for consistent Umlaut representation
+- Dictionary-validated OCR correction: restores Umlauts from digraphs (ue->ü, oe->ö, ae->ä) only when valid German word
+- Conservative approach: better to miss correction than introduce errors
+- Digit substitutions (3->e, 0->o, 1->l) only for name/address fields via separate correct_name_field() method
+- GermanValidator for postal codes (5 digits), names (Umlauts, prefixes), addresses (street + number)
+- pyspellchecker>=0.8.4 dependency added for German dictionary validation
 
 **New from 04-02:**
 - parse_german_amount() with babel locale-aware parsing (de_DE first, en_US fallback)
