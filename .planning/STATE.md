@@ -11,18 +11,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 7 of 10 (Confidence Scoring & Calibration)
-Plan: 1 of 4 complete
+Plan: 3 of 4 complete
 Status: In progress
-Last activity: 2026-02-05 — Completed 07-01-PLAN.md (Confidence Dimensions & Calibration)
+Last activity: 2026-02-05 — Completed 07-03-PLAN.md (Calibration Data Collection)
 
-Progress: [██████▓░░░] 62.5%
+Progress: [██████▓░░░] 66.7%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 27
-- Average duration: 3.18 minutes
-- Total execution time: 1.64 hours
+- Total plans completed: 29
+- Average duration: 3.17 minutes
+- Total execution time: 1.78 hours
 
 **By Phase:**
 
@@ -34,7 +34,7 @@ Progress: [██████▓░░░] 62.5%
 | 4 | 4 | 13.5 min | 3.4 min |
 | 5 | 5 | 17.7 min | 3.5 min |
 | 6 | 5 | 14.5 min | 2.9 min |
-| 7 | 1 | 3.85 min | 3.85 min |
+| 7 | 3 | 9.77 min | 3.26 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -61,7 +61,9 @@ Progress: [██████▓░░░] 62.5%
 - 06-04: 2.8 minutes (MatchingEngineV2 core orchestrator)
 - 06-05: 4.1 minutes (Pipeline integration with review queue routing)
 - 07-01: 3.85 minutes (Confidence dimension calculators and CalibrationSample model)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.9 min
+- 07-02: 3.0 minutes (Overall confidence calculator and three-tier routing)
+- 07-03: 2.92 minutes (Calibration data collection from manual review resolutions)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.2 min
 
 *Updated after each plan completion*
 
@@ -311,6 +313,25 @@ Recent decisions affecting current work:
 - correction_type and correction_details JSONB for threshold tuning analysis
 - Migration creates calibration_samples table with indexes on confidence_bucket, was_correct
 
+**New from 07-02:**
+- calculate_overall_confidence uses weakest-link across extraction and match dimensions
+- Confidence confidence_metadata JSONB tracks dimension breakdown and overall calculation
+- Three-tier routing: high (≥0.85) auto-write, medium (0.6-0.85) write+notify, low (<0.6) manual review
+- Settings added: confidence_high_threshold, confidence_low_threshold (env configurable)
+- calculate_and_store_confidence service centralizes confidence calculation
+- Email processor integrated with confidence calculation and routing
+- Auto-write path: high confidence emails write to database without manual review
+- Medium confidence notification system (write first, notify after)
+
+**New from 07-03:**
+- Calibration collector captures labeled examples from manual review resolutions
+- Implicit labeling: approval = was_correct=True, correction = was_correct=False
+- Correction type classification: amount_corrected, client_name_corrected, creditor_name_corrected, match_corrected, multiple
+- Document type extraction from agent_checkpoints (priority: native_pdf > scanned_pdf > docx > xlsx > image)
+- Selective capture: skip spam/rejected/escalated resolutions (not useful for calibration)
+- Manual review resolve endpoint triggers calibration sample capture
+- Transactional consistency: resolution + calibration in same transaction
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -328,9 +349,11 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 7 In Progress:** Plan 1 of 4 complete
+**Phase 7 In Progress:** Plan 3 of 4 complete
 - 07-01 Complete: Confidence dimension calculators and CalibrationSample model
-- Next: 07-02 (Routing service integration)
+- 07-02 Complete: Overall confidence calculator and three-tier routing
+- 07-03 Complete: Calibration data collection from manual review resolutions
+- Next: 07-04 (Threshold calibration analyzer)
 - Migration required: `alembic upgrade head` to create calibration_samples table
 
 **Phase 6 Complete:** All 5 plans executed successfully, verified (6/6 must-haves satisfied)
@@ -352,10 +375,15 @@ Recent decisions affecting current work:
 
 **Migration Risk:** v1 system bypassed matching engine likely due to database consistency issues. Must validate Phase 1 fixes prevent regression before building v2 pipeline on same foundation.
 
+**Phase 7 Production Notes:**
+- Calibration samples accumulate gradually from manual review resolutions
+- UI must send corrected_data matching extracted_data structure for corrections
+- Monitor calibration accumulation: `SELECT confidence_bucket, was_correct, COUNT(*) FROM calibration_samples GROUP BY confidence_bucket, was_correct;`
+
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Completed 07-01-PLAN.md (Confidence Dimensions & Calibration)
+Stopped at: Completed 07-03-PLAN.md (Calibration Data Collection)
 Resume file: None
 
 ---
