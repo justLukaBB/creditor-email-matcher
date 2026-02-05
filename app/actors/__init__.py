@@ -59,3 +59,10 @@ broker = setup_broker()
 # Actor imports (registered with broker on import)
 from app.actors import email_processor  # noqa: F401
 from app.actors import content_extractor  # noqa: F401
+from app.actors import consolidation_agent  # noqa: F401
+from app.actors import intent_classifier  # noqa: F401
+
+# Export specific actors for convenience
+from app.actors.email_processor import process_email  # noqa: F401
+from app.actors.content_extractor import extract_content  # noqa: F401
+from app.actors.intent_classifier import classify_intent  # noqa: F401
