@@ -69,6 +69,13 @@ class IncomingEmail(Base):
     match_status = Column(String(50), nullable=True)
     # Statuses: auto_matched, needs_review, manual_queue, no_match
 
+    # Confidence Scoring (Phase 7: Confidence Scoring & Calibration)
+    extraction_confidence = Column(Integer, nullable=True)  # 0-100, extraction dimension
+    # Note: match_confidence already exists (from Phase 6)
+    overall_confidence = Column(Integer, nullable=True)  # 0-100, min(extraction, match)
+    confidence_route = Column(String(20), nullable=True)  # high, medium, low
+    # Documents the routing decision made for this email
+
     # Timestamps
     received_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     processed_at = Column(DateTime(timezone=True), nullable=True)
