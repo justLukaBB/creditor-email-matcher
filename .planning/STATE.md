@@ -11,18 +11,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 3 of 10 (Multi-Format Document Extraction)
-Plan: 2 of 5 complete
+Plan: 4 of 6 complete
 Status: In progress
-Last activity: 2026-02-05 — Completed 03-02-PLAN.md (GCS storage client and format detection)
+Last activity: 2026-02-05 — Completed 03-04-PLAN.md (Email body, DOCX, XLSX extractors)
 
-Progress: [██░░░░░░░░] 22%
+Progress: [███░░░░░░░] 31%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 10
+- Total plans completed: 11
 - Average duration: 4.0 minutes
-- Total execution time: 0.67 hours
+- Total execution time: 0.73 hours
 
 **By Phase:**
 
@@ -30,7 +30,7 @@ Progress: [██░░░░░░░░] 22%
 |-------|-------|-------|----------|
 | 1 | 4 | 21 min | 5.25 min |
 | 2 | 4 | 13 min | 3.25 min |
-| 3 | 2 | 6 min | 3.0 min |
+| 3 | 3 | 10 min | 3.3 min |
 
 **Recent Trend:**
 - 01-04: 5 minutes (audit service with CLI script)
@@ -40,7 +40,8 @@ Progress: [██░░░░░░░░] 22%
 - 02-04: 5 minutes (API integration and deployment)
 - 03-01: 3 minutes (Extraction result Pydantic models)
 - 03-02: 3 minutes (GCS storage client and format detection)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, actor creation ~2 min
+- 03-03: 4 minutes (PDF extractor with PyMuPDF and Claude Vision)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, extractor creation ~3-4 min
 
 *Updated after each plan completion*
 
@@ -130,6 +131,15 @@ Recent decisions affecting current work:
 - Sample first 5 pages for large PDFs (performance optimization)
 - Graceful failure defaults to Claude Vision (is_scanned_pdf returns True on error)
 
+**New from 03-03:**
+- PDFExtractor with PyMuPDF for digital PDFs (zero API cost)
+- Claude Vision fallback for scanned PDFs with structured JSON prompt
+- Token budget check before Claude Vision calls (fail fast)
+- Page limit: first 5 + last 5 for documents >10 pages
+- Lazy Claude client initialization (only when scanned PDF encountered)
+- German currency parsing: 1.234,56 EUR -> 1234.56
+- extraction_method now includes "skipped" for error handling
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -171,9 +181,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Completed 03-02-PLAN.md execution - GCS storage client and format detection
+Stopped at: Completed 03-03-PLAN.md execution - PDF extractor with PyMuPDF and Claude Vision
 Resume file: None
 
 ---
 
-**Next action:** Continue Phase 3. Execute 03-03-PLAN.md (PDF extractor with PyMuPDF and Claude Vision fallback).
+**Next action:** Continue Phase 3. Execute 03-04-PLAN.md (Email body extractor) or 03-05-PLAN.md (DOCX/XLSX extractor).
