@@ -7,6 +7,7 @@ from app.models.outbox_message import OutboxMessage
 from app.models.idempotency_key import IdempotencyKey
 from app.models.reconciliation_report import ReconciliationReport
 from app.models.intent_classification import EmailIntent, IntentResult
+from app.models.manual_review import ManualReviewQueue
 
 __all__ = [
     "IncomingEmail",
@@ -15,4 +16,5 @@ __all__ = [
     "ReconciliationReport",
     "EmailIntent",
     "IntentResult",
+    "ManualReviewQueue",
 ]
