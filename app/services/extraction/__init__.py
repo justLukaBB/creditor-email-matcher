@@ -13,6 +13,9 @@ from .detector import (
     SUPPORTED_FORMATS,
 )
 from .pdf_extractor import PDFExtractor, EXTRACTION_PROMPT
+from .email_body_extractor import EmailBodyExtractor
+from .docx_extractor import DOCXExtractor
+from .xlsx_extractor import XLSXExtractor
 
 __all__ = [
     # Format detection
@@ -25,4 +28,8 @@ __all__ = [
     # PDF extraction
     "PDFExtractor",
     "EXTRACTION_PROMPT",
+    # Additional extractors
+    "EmailBodyExtractor",
+    "DOCXExtractor",
+    "XLSXExtractor",
 ]
