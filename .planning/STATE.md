@@ -6,23 +6,23 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** Gläubiger-Antworten werden zuverlässig dem richtigen Mandanten und Gläubiger zugeordnet und die Forderungsdaten korrekt in die Datenbank geschrieben — ohne manuellen Aufwand.
 
-**Current focus:** Phase 3 - Multi-Format Document Extraction (COMPLETE)
+**Current focus:** Phase 4 - German Document Extraction
 
 ## Current Position
 
-Phase: 3 of 10 (Multi-Format Document Extraction)
-Plan: 6 of 6 complete
-Status: Phase complete
-Last activity: 2026-02-05 — Completed 03-06-PLAN.md (Extraction orchestration)
+Phase: 4 of 10 (German Document Extraction)
+Plan: 2 of 4 complete
+Status: In progress
+Last activity: 2026-02-05 — Completed 04-02-PLAN.md (German amount parser)
 
-Progress: [████░░░░░░] 40%
+Progress: [████░░░░░░] 42%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 14
-- Average duration: 3.9 minutes
-- Total execution time: 0.9 hours
+- Total plans completed: 15
+- Average duration: 3.8 minutes
+- Total execution time: 1.0 hours
 
 **By Phase:**
 
@@ -31,9 +31,9 @@ Progress: [████░░░░░░] 40%
 | 1 | 4 | 21 min | 5.25 min |
 | 2 | 4 | 13 min | 3.25 min |
 | 3 | 6 | 21 min | 3.5 min |
+| 4 | 2 | 7 min | 3.5 min |
 
 **Recent Trend:**
-- 01-04: 5 minutes (audit service with CLI script)
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
 - 02-02: 3 minutes (Job state machine database schema)
 - 02-03: 2 minutes (Email processor Dramatiq actor)
@@ -44,7 +44,9 @@ Progress: [████░░░░░░] 40%
 - 03-04: 4 minutes (Email body, DOCX, XLSX extractors)
 - 03-05: 3 minutes (Image extractor and consolidator)
 - 03-06: 4 minutes (Extraction orchestration and email processor integration)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, extractor creation ~3-4 min
+- 04-01: 3.5 minutes (German spell checker with pyspellchecker)
+- 04-02: 3.5 minutes (German amount parser with babel)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min
 
 *Updated after each plan completion*
 
@@ -171,6 +173,20 @@ Recent decisions affecting current work:
 - extraction_metadata tracks sources_processed, sources_with_amount, total_tokens_used
 - Backward-compatible extracted_data schema maintained for downstream compatibility
 
+**New from 04-01:**
+- German spell checker using pyspellchecker library (de_DE dictionary)
+- suggest_corrections() returns dict of misspelled words with suggestions
+- correct_text() auto-corrects known misspellings inline
+- add_custom_word() for domain vocabulary (creditor names, legal terms)
+- Thread-safe lazy initialization of spell checker dictionary
+
+**New from 04-02:**
+- parse_german_amount() with babel locale-aware parsing (de_DE first, en_US fallback)
+- Format detection using decimal separator patterns (,XX = German, .XX = US)
+- Handles ambiguous formats by analyzing rightmost separator position
+- extract_amount_from_text() regex helper for finding amounts in German text
+- Currency symbol stripping (EUR, Euro, €) before parsing
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -188,7 +204,7 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 3 Complete:** All 6 plans executed (extraction models, GCS storage, PDF extractor, email/DOCX/XLSX extractors, image extractor + consolidator, extraction orchestration). Ready for Phase 4 (German Text Processing).
+**Phase 4 In Progress:** 2 of 4 plans complete (spell checker, amount parser). Remaining: reference number extraction, integration with existing extractors.
 
 **Production Deployment Required:** Phases 1, 2, and 3 code complete but not deployed. Need to:
 1. Deploy to production environment with Procfile
@@ -205,9 +221,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Completed 03-06-PLAN.md execution - Extraction orchestration (Phase 3 complete)
+Stopped at: Completed 04-02-PLAN.md execution - German amount parser with babel
 Resume file: None
 
 ---
 
-**Next action:** Begin Phase 4 planning (German Text Processing). Create context and research files for reference number extraction and German-specific text normalization.
+**Next action:** Execute 04-03-PLAN.md (Reference number extraction) or 04-04-PLAN.md (Integration with extractors).
