@@ -40,25 +40,32 @@ from app.services.cost_control import TokenBudgetTracker
 logger = structlog.get_logger(__name__)
 
 
-# Claude Vision extraction prompt for images
-IMAGE_EXTRACTION_PROMPT = """Analyze this image of a German creditor/debt document.
+# Claude Vision extraction prompt for images (German - USER DECISION)
+IMAGE_EXTRACTION_PROMPT = """Analysiere dieses Bild eines deutschen Glaeubiger-/Inkassodokuments.
 
-Extract the following information if visible:
-1. Gesamtforderung (total claim amount) - look for currency amounts in EUR
-2. If no total: Sum Hauptforderung + Zinsen + Kosten
-3. Gläubiger (creditor name)
-4. Schuldner (debtor/client name)
+Extrahiere die folgenden Informationen, falls sichtbar:
+1. Gesamtforderung (Gesamtbetrag) - suche nach Waehrungsbetraegen in EUR
+2. Falls kein Gesamtbetrag: Summiere Hauptforderung + Zinsen + Kosten
+3. Glaeubiger (Name des Glaeubigerers/der Firma)
+4. Schuldner (Name des Schuldners/Kunden)
 
-German number format: 1.234,56 EUR means 1234.56
+WICHTIG:
+- Akzeptiere Synonyme: "Schulden", "offener Betrag", "Restschuld", "Forderungshoehe"
+- Deutsche Zahlenformatierung: 1.234,56 EUR bedeutet 1234.56
+- Bei unleserlichen Stellen: null zurueckgeben statt raten
 
-Return ONLY valid JSON:
+BEISPIELE:
+- "Gesamtforderung: 1.234,56 EUR" -> 1234.56
+- "Offener Betrag per 01.01.2026: 2.500 EUR" -> 2500.00
+
+Gib NUR valides JSON zurueck:
 {
   "gesamtforderung": 1234.56,
-  "glaeubiger": "Company Name",
-  "schuldner": "Person Name"
+  "glaeubiger": "Firmenname",
+  "schuldner": "Personenname"
 }
 
-If information is not visible or the image is not a relevant document, return:
+Falls die Information nicht sichtbar ist oder das Bild kein relevantes Dokument zeigt:
 {"gesamtforderung": null, "glaeubiger": null, "schuldner": null}"""
 
 
