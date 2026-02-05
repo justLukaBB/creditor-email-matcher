@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     gcs_bucket_name: Optional[str] = None
     gcs_max_file_size_mb: int = 32  # Claude API 32MB limit
 
+    # Cost Control (Phase 3: Multi-Format Document Extraction)
+    max_tokens_per_job: int = 100000  # 100K tokens per extraction job
+    daily_cost_limit_usd: float = 50.0  # Daily Claude API spend limit
+    claude_input_cost_per_million: float = 3.0  # Sonnet 4.5 pricing: $3/M input
+    claude_output_cost_per_million: float = 15.0  # Sonnet 4.5 pricing: $15/M output
+
     class Config:
         env_file = ".env"
         case_sensitive = False
