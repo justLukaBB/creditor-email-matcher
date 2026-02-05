@@ -13,6 +13,7 @@ from app.config import settings
 from app.database import init_db
 from app.routers.webhook import router as webhook_router
 from app.routers.jobs import router as jobs_router
+from app.routers.manual_review import router as manual_review_router
 
 # Structured Logging Setup
 structlog.configure(
@@ -39,6 +40,7 @@ scheduler = BackgroundScheduler(timezone="Europe/Berlin")
 # Register routers
 app.include_router(webhook_router)
 app.include_router(jobs_router)
+app.include_router(manual_review_router)
 
 
 def run_scheduled_reconciliation():
