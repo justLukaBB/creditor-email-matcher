@@ -11,18 +11,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 6 of 10 (Matching Engine Reconstruction)
-Plan: 3 of 5 complete
+Plan: 4 of 5 complete
 Status: In progress
-Last activity: 2026-02-05 — Completed 06-03-PLAN.md (Threshold Management and Matching Strategies)
+Last activity: 2026-02-05 — Completed 06-04-PLAN.md (Match Orchestrator)
 
-Progress: [█████░░░░░] 54%
+Progress: [█████░░░░░] 56%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 24
-- Average duration: 3.4 minutes
-- Total execution time: 1.4 hours
+- Total plans completed: 25
+- Average duration: 3.3 minutes
+- Total execution time: 1.5 hours
 
 **By Phase:**
 
@@ -33,7 +33,7 @@ Progress: [█████░░░░░] 54%
 | 3 | 6 | 21 min | 3.5 min |
 | 4 | 4 | 13.5 min | 3.4 min |
 | 5 | 5 | 17.7 min | 3.5 min |
-| 6 | 3 | 7.6 min | 2.5 min |
+| 6 | 4 | 10.4 min | 2.6 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -57,7 +57,8 @@ Progress: [█████░░░░░] 54%
 - 05-05: 2.3 minutes (Multi-agent pipeline integration)
 - 06-02: 2.6 minutes (Signal scorers and explainability with RapidFuzz 3.x)
 - 06-03: 2.4 minutes (Threshold management and matching strategies)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~2.5 min, signal scoring ~2.5 min
+- 06-04: 2.8 minutes (MatchingEngineV2 core orchestrator)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~2.5 min, signal scoring ~2.5 min, matching engine ~2.7 min
 
 *Updated after each plan completion*
 
@@ -277,6 +278,15 @@ Recent decisions affecting current work:
 - All strategies enforce "both signals required" rule from CONTEXT.MD
 - StrategyResult dataclass: score, component_scores, signal_details, strategy_used
 
+**New from 06-04:**
+- MatchingEngineV2 filters candidates by 30-day creditor_inquiries window (key optimization)
+- Gap threshold determines auto_matched vs ambiguous status (gap = top_score - second_score)
+- No auto-match without recent creditor_inquiries record (no_recent_inquiry status)
+- All match results include explainability JSONB regardless of status
+- save_match_results uses db.flush() not commit (caller controls transaction)
+- MatchingResult statuses: auto_matched, ambiguous, below_threshold, no_candidates, no_recent_inquiry
+- Ambiguous matches route to manual review with top 3 candidates
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -294,11 +304,12 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 6 In Progress:** 3 of 5 plans complete.
+**Phase 6 In Progress:** 4 of 5 plans complete.
 - 06-01 Complete: Database models (MatchingThreshold, CreditorInquiry, MatchResult)
 - 06-02 Complete: Signal scorers (name, reference) with RapidFuzz 3.x and ExplainabilityBuilder
 - 06-03 Complete: ThresholdManager and matching strategies (exact, fuzzy, combined)
-- Next: 06-04 (Match Orchestrator), 06-05 (Integration)
+- 06-04 Complete: MatchingEngineV2 core orchestrator with creditor_inquiries filtering and gap threshold
+- Next: 06-05 (Pipeline Integration)
 
 **Production Deployment Required:** Phases 1, 2, 3, and 4 code complete but not deployed. Need to:
 1. Deploy to production environment with Procfile
@@ -315,9 +326,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Completed 06-03-PLAN.md (Threshold Management and Matching Strategies)
+Stopped at: Completed 06-04-PLAN.md (Match Orchestrator)
 Resume file: None
 
 ---
 
-**Next action:** Continue Phase 6 with 06-03 (Candidate Retrieval) or subsequent plans.
+**Next action:** Continue Phase 6 with 06-05 (Pipeline Integration) to complete the phase.
