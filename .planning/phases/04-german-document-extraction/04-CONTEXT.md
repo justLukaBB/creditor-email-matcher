@@ -6,55 +6,46 @@
 <domain>
 ## Phase Boundary
 
-German-specific text processing for creditor documents: Umlaut handling, locale-aware number parsing (1.234,56 EUR), OCR error correction, and German extraction prompts. Does NOT add new extraction fields — applies German processing to existing Phase 3 extraction pipeline.
+German-specific text processing that handles Umlauts, locale formats (1.234,56 EUR), and legal terminology correctly — preventing parsing errors and mismatches in extracted data. This phase optimizes the Phase 3 extraction for German documents specifically.
+
+Out of scope: IBAN/BIC extraction (Ratenzahlung handling not relevant to this system).
 
 </domain>
 
 <decisions>
 ## Implementation Decisions
 
-### Extraction Scope
-- **Primary field:** Forderungshöhe (debt amount) — this is what matters
-- **For matching only:** Client name, creditor name, reference numbers
-- **Skip entirely:** Bank details (IBAN, BIC), Ratenzahlung, addresses, extended Forderungsaufschlüsselung
-- This simplifies Phase 4 significantly — focus German optimization on the fields that matter
-
-### OCR Error Correction
-- **Moderate correction** — correct common patterns where context supports, skip ambiguous cases
-- **Ambiguous patterns stay unchanged** — if 'ss' could be ß or legitimately ss, leave as-is
-- **Confidence impact only for names** — correcting proper nouns (client/creditor names) reduces confidence slightly
-- **Log summary only** — count of corrections per document, not individual changes
-
-### Prompt Localization
-- **Full German prompts** — instructions, examples, and field names all in German
-- **Treat mixed-language docs as German** — don't attempt per-section language detection
-- **Minimal terminology hints** — include key amount field terms (Gesamtforderung, Hauptforderung) but not full glossary
-- **2-3 few-shot examples** — from different creditor types (bank, utility, collection agency)
-
-### Reference Number Formats
-- **Flexible extraction** — extract anything that looks like a reference number
-- **Only labeled references** — must have a label (Aktenzeichen:, Unser Zeichen:, etc.) to be extracted
-- **Preserve original formatting** — no normalization, keep 'AB 123-456' as-is
-- Matching engine (Phase 6) handles comparison
-
 ### Validation Strictness
-- **Accept data anyway** — validation failures are informational, don't reject or reduce confidence
-- **Accept all amounts** — no outlier flagging, even implausible values (0.01€ or 10M€)
-- Keep extraction simple, let downstream processing handle validation if needed
+- **Amount parsing:** Try German format first (1.234,56), fall back to US format (1,234.56) — accept whichever parses
+- **Name cleanup:** Auto-correct obvious OCR errors before matching (3→e, 0→o, 1→l in names)
+- **IBAN/BIC:** Not extracted — payment plan details handled manually, out of scope for automated extraction
+
+### Mixed-Language Handling
+- **Document language:** Assume German always — all creditor replies are German
+- **English emails:** Process anyway with German rules — rare edge case not worth special handling
+- **Prompt language:** Use German prompts with German examples for Claude extraction
+- **Legal terminology:** Accept equivalents (Schulden, offener Betrag, Gesamtsumme) not just formal terms (Gesamtforderung, Hauptforderung)
+
+### OCR Correction Scope
+- **Umlaut restoration:** Context-based — correct known German words (Muller→Müller), leave unknown words unchanged
+- **Character substitutions:** Fix digit→letter errors in name/address fields only, not in amounts or reference numbers
+- **Correction logging:** Log errors only — when correction fails or seems uncertain
+- **Confidence impact:** No reduction from corrections — they fix the problem, confidence based on final extraction result
 
 ### Claude's Discretion
-- Which labels indicate reference numbers (Aktenzeichen, Geschäftszeichen, Vorgangsnummer, etc.)
-- Specific OCR correction patterns and word lists
-- Few-shot example selection and formatting
+- Specific regex patterns for German format validation
+- Unicode normalization implementation (NFKC)
+- German word dictionary for context-based correction
+- Prompt wording and example selection
 
 </decisions>
 
 <specifics>
 ## Specific Ideas
 
-- Forderungshöhe is the critical field — everything else supports matching
-- Don't over-engineer validation — extraction should be permissive
-- German prompts should feel native, not translated English
+- German prompts should use realistic creditor response examples
+- Accept informal synonyms alongside legal terminology for broader extraction coverage
+- OCR correction should be conservative — better to miss a correction than introduce errors
 
 </specifics>
 
