@@ -42,25 +42,32 @@ from app.services.extraction.detector import is_scanned_pdf, is_encrypted_pdf
 logger = structlog.get_logger(__name__)
 
 
-# Claude Vision extraction prompt for scanned PDFs
-EXTRACTION_PROMPT = """Analyze this German creditor document and extract the following information.
+# Claude Vision extraction prompt for scanned PDFs (German - USER DECISION)
+EXTRACTION_PROMPT = """Analysiere dieses deutsche Glaeubigerdokument und extrahiere die folgenden Informationen.
 
-IMPORTANT RULES:
-1. Look for "Gesamtforderung" (total claim) - this is the main amount we need
-2. If no explicit Gesamtforderung: Sum "Hauptforderung" + "Zinsen" + "Kosten"
-3. Parse German number format: 1.234,56 EUR means 1234.56
+WICHTIGE REGELN:
+1. Suche nach "Gesamtforderung" (Hauptbetrag) - dies ist der wichtigste Betrag
+2. Akzeptiere auch Synonyme: "Forderungshoehe", "offener Betrag", "Gesamtsumme", "Schulden", "Restschuld"
+3. Deutsche Zahlenformatierung: 1.234,56 EUR bedeutet 1234.56
+4. Wenn keine explizite Gesamtforderung: Summiere "Hauptforderung" + "Zinsen" + "Kosten"
 
-Extract:
-1. gesamtforderung: The total claim amount in EUR (numeric only, e.g., 1234.56)
-2. glaeubiger: Creditor/company name
-3. schuldner: Debtor/client name
-4. components: If Gesamtforderung not explicit, provide breakdown
+BEISPIELE (typische Formulierungen in Glaeubiger-Antworten):
+- "Die Gesamtforderung betraegt 1.234,56 EUR" -> gesamtforderung: 1234.56
+- "Offener Betrag: 2.500,00 EUR" -> gesamtforderung: 2500.00
+- "Restschuld per 01.01.2026: 3.456,78 EUR" -> gesamtforderung: 3456.78
+- "Hauptforderung 1.000 EUR, Zinsen 150,50 EUR, Kosten 84,00 EUR" -> gesamtforderung: 1234.50 (Summe)
 
-Return ONLY valid JSON in this exact format:
+EXTRAHIERE:
+1. gesamtforderung: Gesamtforderungsbetrag in EUR (nur Zahl, z.B. 1234.56)
+2. glaeubiger: Name des Glaeubigerers/der Firma (z.B. "XY Inkasso GmbH", "ABC Bank AG")
+3. schuldner: Name des Schuldners/Kunden (z.B. "Max Mustermann", "Maria Mueller")
+4. components: Falls Gesamtforderung nicht explizit, gib Aufschluesselung an
+
+Gib NUR valides JSON in diesem exakten Format zurueck:
 {
   "gesamtforderung": 1234.56,
-  "glaeubiger": "Company Name",
-  "schuldner": "Person Name",
+  "glaeubiger": "Firmenname",
+  "schuldner": "Kundenname",
   "components": {
     "hauptforderung": 1000.00,
     "zinsen": 150.56,
@@ -68,7 +75,7 @@ Return ONLY valid JSON in this exact format:
   }
 }
 
-If a field cannot be found, use null. For gesamtforderung, return null only if no amounts are found at all."""
+Wenn ein Feld nicht gefunden wird, nutze null. Fuer gesamtforderung gib null nur zurueck, wenn gar keine Betraege gefunden werden."""
 
 
 class PDFExtractor:
