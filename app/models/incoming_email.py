@@ -4,6 +4,7 @@ Stores incoming creditor responses received via Zendesk webhook
 """
 
 from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, JSON
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -88,6 +89,35 @@ class IncomingEmail(Base):
     sync_error = Column(Text, nullable=True)
     sync_retry_count = Column(Integer, default=0, nullable=False)
     idempotency_key = Column(String(255), nullable=True, unique=True)
+
+    # Multi-Agent Pipeline Checkpoints (Phase 5: Multi-Agent Pipeline Validation)
+    agent_checkpoints = Column(JSONB, nullable=True)
+    """
+    Stores intermediate results from multi-agent pipeline processing.
+
+    Structure:
+    {
+        "agent_1_intent": {
+            "intent": "debt_statement",
+            "confidence": 0.85,
+            "method": "claude_haiku",
+            "timestamp": "2026-02-05T10:30:00Z",
+            "validation_status": "passed"
+        },
+        "agent_2_extraction": {
+            "sources_processed": 3,
+            "gesamtforderung": 1500.0,
+            "timestamp": "2026-02-05T10:30:15Z",
+            "validation_status": "passed"
+        },
+        "agent_3_consolidation": {
+            "final_amount": 1500.0,
+            "conflicts_detected": 0,
+            "timestamp": "2026-02-05T10:30:30Z",
+            "validation_status": "passed"
+        }
+    }
+    """
 
     def __repr__(self):
         return f"<IncomingEmail(id={self.id}, from='{self.from_email}', status='{self.processing_status}', sync='{self.sync_status}')>"
