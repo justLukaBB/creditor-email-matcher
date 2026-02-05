@@ -75,6 +75,21 @@ def should_retry(retries_so_far: int, exception: Exception) -> bool:
     return retries_so_far < 5
 
 
+def _confidence_to_float(confidence: str) -> float:
+    """Convert confidence level to float for backward compatibility."""
+    mapping = {"HIGH": 0.9, "MEDIUM": 0.7, "LOW": 0.5}
+    return mapping.get(confidence, 0.5)
+
+
+def _get_redis_client():
+    """Get Redis client if available."""
+    from app.config import settings
+    if settings.redis_url:
+        import redis
+        return redis.from_url(settings.redis_url)
+    return None
+
+
 def on_process_email_failure(message_data, exception):
     """
     Callback invoked by Dramatiq when email processing permanently fails.
@@ -208,6 +223,7 @@ def process_email(email_id: int) -> None:
         from app.services.dual_write import DualDatabaseWriter
         from app.services.idempotency import IdempotencyService, generate_idempotency_key
         from app.services.email_notifier import email_notifier
+        from app.actors.content_extractor import ContentExtractionService
         from app.config import settings
 
         # Step 3: Parse email
@@ -223,6 +239,50 @@ def process_email(email_id: int) -> None:
         email.token_count_after = parsed["token_count_after"]
         email.processing_status = "parsed"
         db.commit()
+
+        # Step 3b: Phase 3 Content Extraction (email body + attachments)
+        logger.info("content_extraction_started", email_id=email_id)
+        email.processing_status = "content_extracting"
+        db.commit()
+
+        # Get email body for extraction (use cleaned_body if available)
+        email_body_for_extraction = (
+            email.cleaned_body or email.raw_body_text or email.raw_body_html
+        )
+
+        # Get attachment URLs from JSON column (populated by webhook in Phase 2)
+        attachment_urls = email.attachment_urls or []
+
+        # Run Phase 3 extraction pipeline
+        extraction_service = ContentExtractionService(redis_client=_get_redis_client())
+        phase3_result = extraction_service.extract_all(
+            email_body=email_body_for_extraction,
+            attachment_urls=attachment_urls
+        )
+
+        # Store Phase 3 results in extracted_data with backward-compatible schema
+        email.extracted_data = {
+            "is_creditor_reply": True,  # Phase 5 will add intent classification
+            "client_name": phase3_result.client_name,
+            "creditor_name": phase3_result.creditor_name,
+            "debt_amount": phase3_result.gesamtforderung,
+            "reference_numbers": [],  # Phase 4 will extract reference numbers
+            "confidence": _confidence_to_float(phase3_result.confidence),
+            "extraction_metadata": {
+                "sources_processed": phase3_result.sources_processed,
+                "sources_with_amount": phase3_result.sources_with_amount,
+                "total_tokens_used": phase3_result.total_tokens_used,
+                "method": "phase3_extraction"
+            }
+        }
+        email.processing_status = "content_extracted"
+        db.commit()
+
+        logger.info("content_extraction_completed",
+                   email_id=email_id,
+                   amount=phase3_result.gesamtforderung,
+                   confidence=phase3_result.confidence,
+                   sources=phase3_result.sources_processed)
 
         # Step 4: Extract entities with LLM
         logger.info("extracting_entities",
@@ -243,8 +303,21 @@ def process_email(email_id: int) -> None:
             subject=email.subject
         )
 
-        # Store extracted data
-        email.extracted_data = extracted_entities.model_dump()
+        # Merge entity extraction results with Phase 3 extraction
+        # Phase 3 provides: debt_amount (from attachments), client_name, creditor_name
+        # Entity extraction provides: is_creditor_reply, reference_numbers, summary
+        # Priority: Phase 3 debt_amount (processes attachments), entity extraction for intent
+        current_extracted_data = email.extracted_data or {}
+        email.extracted_data = {
+            "is_creditor_reply": extracted_entities.is_creditor_reply,
+            "client_name": current_extracted_data.get("client_name") or extracted_entities.client_name,
+            "creditor_name": current_extracted_data.get("creditor_name") or extracted_entities.creditor_name,
+            "debt_amount": current_extracted_data.get("debt_amount") or extracted_entities.debt_amount,
+            "reference_numbers": extracted_entities.reference_numbers or [],
+            "confidence": current_extracted_data.get("confidence", 0.5),
+            "summary": extracted_entities.summary,
+            "extraction_metadata": current_extracted_data.get("extraction_metadata", {})
+        }
         email.processing_status = "extracted"
         db.commit()
 
@@ -267,11 +340,12 @@ def process_email(email_id: int) -> None:
         email.processing_status = "matching"
         db.commit()
 
-        # Extract required data
-        client_name = extracted_entities.client_name
-        creditor_name = extracted_entities.creditor_name
+        # Extract required data (from merged extracted_data - Phase 3 + entity extraction)
+        final_extracted = email.extracted_data
+        client_name = final_extracted.get("client_name")
+        creditor_name = final_extracted.get("creditor_name")
         creditor_email = email.from_email
-        new_debt_amount = extracted_entities.debt_amount
+        new_debt_amount = final_extracted.get("debt_amount")
 
         # Validate required fields
         if not client_name or not (creditor_name or creditor_email) or not new_debt_amount:
@@ -289,8 +363,9 @@ def process_email(email_id: int) -> None:
 
         # Extract aktenzeichen from reference numbers
         client_aktenzeichen = None
-        if extracted_entities.reference_numbers:
-            for ref in extracted_entities.reference_numbers:
+        reference_numbers = final_extracted.get("reference_numbers", [])
+        if reference_numbers:
+            for ref in reference_numbers:
                 if ref.isdigit() and len(ref) >= 4:
                     client_aktenzeichen = ref
                     break
@@ -321,8 +396,8 @@ def process_email(email_id: int) -> None:
             creditor_email=creditor_email,
             creditor_name=creditor_name_or_email,
             new_debt_amount=new_debt_amount,
-            response_text=extracted_entities.summary,
-            reference_numbers=extracted_entities.reference_numbers,
+            response_text=final_extracted.get("summary"),
+            reference_numbers=reference_numbers,
             idempotency_key=idempotency_key
         )
 
@@ -353,7 +428,7 @@ def process_email(email_id: int) -> None:
                 new_debt_amount=new_debt_amount,
                 side_conversation_id="N/A",
                 zendesk_ticket_id=email.zendesk_ticket_id,
-                reference_numbers=extracted_entities.reference_numbers,
+                reference_numbers=reference_numbers,
                 confidence_score=1.0
             )
         else:
