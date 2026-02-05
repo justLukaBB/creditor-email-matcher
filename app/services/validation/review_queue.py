@@ -44,7 +44,8 @@ def enqueue_for_review(
     email_id: int,
     reason: str,
     details: Optional[Dict[str, Any]] = None,
-    priority: Optional[int] = None
+    priority: Optional[int] = None,
+    expiration_days: Optional[int] = None
 ) -> ManualReviewQueue:
     """
     Add an item to the manual review queue
@@ -58,6 +59,7 @@ def enqueue_for_review(
         reason: Review reason (low_confidence, conflict_detected, etc.)
         details: Optional JSONB details for reviewer context
         priority: Optional explicit priority (1-10), defaults to reason-based priority
+        expiration_days: Optional days until item expires (for low-confidence routing)
 
     Returns:
         ManualReviewQueue item (new or existing)
@@ -87,6 +89,12 @@ def enqueue_for_review(
     if priority is None:
         priority = get_priority_for_reason(reason)
 
+    # Add expiration info to details if provided
+    if expiration_days is not None:
+        if details is None:
+            details = {}
+        details["expiration_days"] = expiration_days
+
     # Create new review item
     review_item = ManualReviewQueue(
         email_id=email_id,
@@ -103,7 +111,8 @@ def enqueue_for_review(
                 review_id=review_item.id,
                 email_id=email_id,
                 reason=reason,
-                priority=priority)
+                priority=priority,
+                expiration_days=expiration_days)
 
     return review_item
 

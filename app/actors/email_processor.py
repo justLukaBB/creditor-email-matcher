@@ -485,13 +485,54 @@ def process_email(email_id: int) -> None:
                    status=matching_result.status,
                    candidates_count=len(matching_result.candidates))
 
+        # ========================================
+        # PHASE 7: Confidence Scoring & Routing
+        # ========================================
+
+        # Collect document types from extraction
+        extraction_checkpoint = (email.agent_checkpoints or {}).get("agent_2_extraction", {})
+        document_types = extraction_checkpoint.get("source_types", ["email_body"])
+
+        # Calculate overall confidence with dimension breakdown
+        from app.services.confidence import calculate_overall_confidence, route_by_confidence, RoutingAction, get_review_expiration_days
+
+        confidence_result = calculate_overall_confidence(
+            agent_checkpoints=email.agent_checkpoints,
+            document_types=document_types,
+            match_result={
+                "status": matching_result.status,
+                "total_score": matching_result.match.total_score if matching_result.match else 0,
+                "candidates": len(matching_result.candidates)
+            } if matching_result else None
+        )
+
+        # Store confidence breakdown
+        email.extraction_confidence = int(confidence_result.extraction * 100)
+        email.overall_confidence = int(confidence_result.overall * 100)
+        # Note: match_confidence already set from matching_result
+
+        # Determine routing
+        route = route_by_confidence(confidence_result.overall)
+        email.confidence_route = route.level.value
+
+        logger.info(
+            "confidence_routing_determined",
+            email_id=email_id,
+            overall=confidence_result.overall,
+            extraction=confidence_result.extraction,
+            match=confidence_result.match,
+            weakest_link=confidence_result.weakest_link,
+            route=route.action.value
+        )
+
         # Handle matching outcomes
         if matching_result.status == "auto_matched":
-            # AUTO-MATCHED: Proceed to DualDatabaseWriter
+            # AUTO-MATCHED: Apply confidence routing
             logger.info("auto_matched",
                        email_id=email_id,
                        inquiry_id=matching_result.match.inquiry.id,
-                       score=matching_result.match.total_score)
+                       score=matching_result.match.total_score,
+                       confidence_route=route.action.value)
 
             # Set matched_inquiry_id from the matched candidate
             matched_inquiry = matching_result.match.inquiry
@@ -554,18 +595,57 @@ def process_email(email_id: int) -> None:
                            creditor_name=creditor_name_or_email,
                            amount=new_debt_amount)
 
-                # Send email notification on successful auto-match
-                email_notifier.send_debt_update_notification(
-                    client_name=client_name,
-                    creditor_name=creditor_name_or_email,
-                    creditor_email=creditor_email,
-                    old_debt_amount=None,
-                    new_debt_amount=new_debt_amount,
-                    side_conversation_id="N/A",
-                    zendesk_ticket_id=email.zendesk_ticket_id,
-                    reference_numbers=reference_numbers,
-                    confidence_score=matching_result.match.total_score
-                )
+                # Apply confidence-based notification routing
+                if route.action == RoutingAction.AUTO_UPDATE:
+                    # HIGH confidence: auto-update with log only, NO notification
+                    logger.info("high_confidence_auto_update",
+                               email_id=email_id,
+                               confidence=confidence_result.overall)
+                    # Do NOT send notification
+
+                elif route.action == RoutingAction.UPDATE_AND_NOTIFY:
+                    # MEDIUM confidence: write to database, then notify review team
+                    logger.info("medium_confidence_update_and_notify",
+                               email_id=email_id,
+                               confidence=confidence_result.overall)
+
+                    # Send email notification for verification
+                    email_notifier.send_debt_update_notification(
+                        client_name=client_name,
+                        creditor_name=creditor_name_or_email,
+                        creditor_email=creditor_email,
+                        old_debt_amount=None,
+                        new_debt_amount=new_debt_amount,
+                        side_conversation_id="N/A",
+                        zendesk_ticket_id=email.zendesk_ticket_id,
+                        reference_numbers=reference_numbers,
+                        confidence_score=matching_result.match.total_score
+                    )
+
+                elif route.action == RoutingAction.MANUAL_REVIEW:
+                    # LOW confidence: route to manual review queue even if auto-matched
+                    logger.info("low_confidence_manual_review_override",
+                               email_id=email_id,
+                               confidence=confidence_result.overall)
+
+                    from app.services.validation import enqueue_for_review
+                    expiration_days = get_review_expiration_days(route.level)
+
+                    enqueue_for_review(
+                        db,
+                        email_id,
+                        reason="low_confidence",
+                        details={
+                            "overall_confidence": confidence_result.overall,
+                            "extraction_confidence": confidence_result.extraction,
+                            "match_confidence": confidence_result.match,
+                            "weakest_link": confidence_result.weakest_link,
+                            "expiration_days": expiration_days,
+                            "match_status": "auto_matched_but_low_confidence"
+                        }
+                    )
+                    email.match_status = "needs_review"
+
             else:
                 email.match_status = "no_match"
                 logger.warning("mongodb_update_failed",
@@ -577,7 +657,8 @@ def process_email(email_id: int) -> None:
             # AMBIGUOUS / BELOW_THRESHOLD / NO_RECENT_INQUIRY: Enqueue to ManualReviewQueue
             logger.info("non_auto_matched_enqueuing_for_review",
                        email_id=email_id,
-                       status=matching_result.status)
+                       status=matching_result.status,
+                       confidence_route=route.action.value)
 
             review_id = enqueue_ambiguous_match(db, email_id, matching_result)
 
