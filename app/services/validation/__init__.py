@@ -10,6 +10,10 @@ from app.services.validation.checkpoint import (
     get_checkpoint,
     has_valid_checkpoint
 )
+from app.services.validation.conflict_detector import (
+    detect_database_conflicts,
+    resolve_conflict_by_majority
+)
 
 __all__ = [
     "validate_with_partial_results",
@@ -17,4 +21,6 @@ __all__ = [
     "save_checkpoint",
     "get_checkpoint",
     "has_valid_checkpoint",
+    "detect_database_conflicts",
+    "resolve_conflict_by_majority",
 ]
