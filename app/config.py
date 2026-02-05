@@ -51,6 +51,12 @@ class Settings(BaseSettings):
     match_threshold_high: float = 0.85  # High confidence threshold
     match_threshold_medium: float = 0.70  # Medium confidence threshold
 
+    # Confidence Routing Configuration (Phase 7)
+    # USER DECISION: Global thresholds only, stored in env vars
+    confidence_high_threshold: float = 0.85  # Above this = auto-update, log only
+    confidence_low_threshold: float = 0.60   # Below this = manual review queue
+    # Note: MEDIUM is between LOW and HIGH thresholds
+
     class Config:
         env_file = ".env"
         case_sensitive = False
