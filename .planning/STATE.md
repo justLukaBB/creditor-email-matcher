@@ -6,23 +6,23 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** Gläubiger-Antworten werden zuverlässig dem richtigen Mandanten und Gläubiger zugeordnet und die Forderungsdaten korrekt in die Datenbank geschrieben — ohne manuellen Aufwand.
 
-**Current focus:** Phase 6 - Matching Engine Reconstruction (VERIFIED COMPLETE)
+**Current focus:** Phase 7 - Confidence Scoring & Calibration (IN PROGRESS)
 
 ## Current Position
 
-Phase: 6 of 10 (Matching Engine Reconstruction)
-Plan: 5 of 5 complete
-Status: Phase verified ✓
-Last activity: 2026-02-05 — Phase 6 verified (6/6 must-haves, 6/6 requirements satisfied)
+Phase: 7 of 10 (Confidence Scoring & Calibration)
+Plan: 1 of 4 complete
+Status: In progress
+Last activity: 2026-02-05 — Completed 07-01-PLAN.md (Confidence Dimensions & Calibration)
 
-Progress: [██████░░░░] 60%
+Progress: [██████▓░░░] 62.5%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 26
-- Average duration: 3.2 minutes
-- Total execution time: 1.6 hours
+- Total plans completed: 27
+- Average duration: 3.18 minutes
+- Total execution time: 1.64 hours
 
 **By Phase:**
 
@@ -34,6 +34,7 @@ Progress: [██████░░░░] 60%
 | 4 | 4 | 13.5 min | 3.4 min |
 | 5 | 5 | 17.7 min | 3.5 min |
 | 6 | 5 | 14.5 min | 2.9 min |
+| 7 | 1 | 3.85 min | 3.85 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -59,7 +60,8 @@ Progress: [██████░░░░] 60%
 - 06-03: 2.4 minutes (Threshold management and matching strategies)
 - 06-04: 2.8 minutes (MatchingEngineV2 core orchestrator)
 - 06-05: 4.1 minutes (Pipeline integration with review queue routing)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min
+- 07-01: 3.85 minutes (Confidence dimension calculators and CalibrationSample model)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.9 min
 
 *Updated after each plan completion*
 
@@ -298,6 +300,17 @@ Recent decisions affecting current work:
 - Priority mapping: ambiguous_match=3, no_recent_inquiry=4, below_threshold=5
 - Application-level matching config: match_lookback_days=30, match_threshold_high=0.85, match_threshold_medium=0.70
 
+**New from 07-01:**
+- Confidence dimension calculators: calculate_extraction_confidence and calculate_match_confidence
+- Source quality baselines: native_pdf (0.95) > docx (0.90) > xlsx (0.85) > scanned_pdf (0.75) > email_body (0.80) > image (0.70)
+- Weakest-link approach at source level for extraction confidence (minimum quality across all sources)
+- Completeness penalty: 0.1 per missing key field (amount, client_name, creditor_name), floor at 0.3
+- Ambiguity penalty: 30% reduction for ambiguous matches (score × 0.7)
+- CalibrationSample model with implicit labeling from reviewer corrections (was_correct boolean)
+- Confidence buckets: high (>0.85), medium (0.6-0.85), low (<0.6)
+- correction_type and correction_details JSONB for threshold tuning analysis
+- Migration creates calibration_samples table with indexes on confidence_bucket, was_correct
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -315,14 +328,12 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 6 Complete:** All 5 plans executed successfully.
-- 06-01 Complete: Database models (MatchingThreshold, CreditorInquiry, MatchResult)
-- 06-02 Complete: Signal scorers (name, reference) with RapidFuzz 3.x and ExplainabilityBuilder
-- 06-03 Complete: ThresholdManager and matching strategies (exact, fuzzy, combined)
-- 06-04 Complete: MatchingEngineV2 core orchestrator with creditor_inquiries filtering and gap threshold
-- 06-05 Complete: Pipeline integration with review queue routing
-- Verified: 6/6 must-haves, all requirements satisfied (REQ-MATCH-01 through REQ-MATCH-06)
-- Next: Phase 7 (Confidence Scoring & Calibration)
+**Phase 7 In Progress:** Plan 1 of 4 complete
+- 07-01 Complete: Confidence dimension calculators and CalibrationSample model
+- Next: 07-02 (Routing service integration)
+- Migration required: `alembic upgrade head` to create calibration_samples table
+
+**Phase 6 Complete:** All 5 plans executed successfully, verified (6/6 must-haves satisfied)
 
 **Phase 6 Production Blockers:**
 - Migration required for Phase 6 models (included in 06-01 migration file)
@@ -344,9 +355,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Phase 6 verified complete
+Stopped at: Completed 07-01-PLAN.md (Confidence Dimensions & Calibration)
 Resume file: None
 
 ---
 
-**Next action:** Begin Phase 7 planning with `/gsd:discuss-phase 7` or `/gsd:plan-phase 7`.
+**Next action:** Execute plan 07-02 (Routing Service) with `/gsd:execute-plan 07-02`.
