@@ -172,11 +172,11 @@ Plans:
 **Plans**: 5 plans
 
 Plans:
-- [ ] 06-01-PLAN.md -- Database models (MatchingThreshold, CreditorInquiry, MatchResult) and migration
-- [ ] 06-02-PLAN.md -- Signal scorers (RapidFuzz) and ExplainabilityBuilder
-- [ ] 06-03-PLAN.md -- ThresholdManager and matching strategies (exact, fuzzy, combined)
-- [ ] 06-04-PLAN.md -- MatchingEngineV2 core with creditor_inquiries integration
-- [ ] 06-05-PLAN.md -- Pipeline integration and ambiguous match routing
+- [x] 06-01-PLAN.md -- Database models (MatchingThreshold, CreditorInquiry, MatchResult) and migration
+- [x] 06-02-PLAN.md -- Signal scorers (RapidFuzz) and ExplainabilityBuilder
+- [x] 06-03-PLAN.md -- ThresholdManager and matching strategies (exact, fuzzy, combined)
+- [x] 06-04-PLAN.md -- MatchingEngineV2 core with creditor_inquiries integration
+- [x] 06-05-PLAN.md -- Pipeline integration and ambiguous match routing
 
 ---
 
@@ -194,10 +194,13 @@ Plans:
   4. Different thresholds apply for native PDFs vs scanned documents based on calibration data
   5. Calibration dataset (500+ labeled examples) validates threshold settings
 
-**Plans**: TBD
+**Plans**: 4 plans
 
 Plans:
-- [ ] 07-01: TBD during planning
+- [ ] 07-01-PLAN.md -- Confidence dimensions service and CalibrationSample model
+- [ ] 07-02-PLAN.md -- Overall confidence calculator and routing service
+- [ ] 07-03-PLAN.md -- Calibration collector and manual review integration
+- [ ] 07-04-PLAN.md -- Pipeline integration with confidence-based routing
 
 ---
 
@@ -337,4 +340,4 @@ Phase 4: German Document Extraction ---------> Phase 5: Multi-Agent Pipeline
 
 ---
 
-*Last updated: 2026-02-05 — Phase 6 complete (5 plans executed, 6/6 requirements satisfied)*
+*Last updated: 2026-02-05 -- Phase 7 planned (4 plans in 3 waves)*
