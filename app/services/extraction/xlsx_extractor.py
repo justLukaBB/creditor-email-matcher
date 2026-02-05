@@ -21,6 +21,9 @@ from app.models.extraction_result import (
     ExtractedAmount,
     ExtractedEntity,
 )
+from app.services.extraction.german_preprocessor import GermanTextPreprocessor
+from app.services.extraction.german_parser import parse_german_amount
+from app.services.extraction.german_validator import GermanValidator
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +37,8 @@ class XLSXExtractor:
     """
 
     def __init__(self):
+        self.preprocessor = GermanTextPreprocessor()
+        self.validator = GermanValidator()
         # Keywords indicating amount values (lowercase for comparison)
         self.amount_keywords = [
             'gesamtforderung', 'gesamt', 'forderung', 'betrag', 'summe',
@@ -89,10 +94,13 @@ class XLSXExtractor:
                         if cell is None:
                             continue
 
-                        cell_str = str(cell).lower()
+                        # NEW: Apply preprocessing to cell text
+                        cell_str = str(cell)
+                        cell_str = self.preprocessor.preprocess(cell_str)
+                        cell_str_lower = cell_str.lower()
 
                         # Check if this cell contains a keyword
-                        if any(kw in cell_str for kw in self.amount_keywords):
+                        if any(kw in cell_str_lower for kw in self.amount_keywords):
                             # Look at adjacent cells for numeric value
                             for adjacent_idx in [col_idx + 1, col_idx - 1]:
                                 if 0 <= adjacent_idx < len(row_list):
@@ -163,25 +171,18 @@ class XLSXExtractor:
             # String parsing
             amount_str = str(cell_value).strip()
 
-            # Remove currency symbols
-            amount_str = amount_str.replace('€', '').replace('EUR', '').strip()
-
-            # Check for German format (comma as decimal separator)
-            has_german_format = ',' in amount_str
-
-            # Parse German number format: 1.234,56 -> 1234.56
-            normalized = amount_str.replace('.', '').replace(',', '.')
-
-            # Remove any remaining non-numeric characters except decimal point
-            normalized = re.sub(r'[^\d.]', '', normalized)
-
-            if normalized:
-                amount_value = float(normalized)
+            # NEW: Use babel-based parser instead of manual replacement
+            try:
+                amount_value = parse_german_amount(amount_str)
                 if amount_value > 0:
+                    # Check for German format (comma as decimal separator)
+                    has_german_format = ',' in amount_str
                     return {
                         'value': amount_value,
                         'confidence': 'HIGH' if has_german_format else 'MEDIUM'
                     }
+            except ValueError:
+                pass  # Fall through to return None
 
         except (ValueError, TypeError):
             pass
