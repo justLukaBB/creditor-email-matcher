@@ -86,8 +86,8 @@ class SourceExtractionResult(BaseModel):
         description="Extracted creditor name"
     )
     extraction_method: Literal[
-        "pymupdf", "claude_vision", "python_docx", "openpyxl", "text_parsing"
-    ] = Field(description="Library/method used for extraction")
+        "pymupdf", "claude_vision", "python_docx", "openpyxl", "text_parsing", "skipped"
+    ] = Field(description="Library/method used for extraction (skipped for errors/encrypted)")
     tokens_used: int = Field(
         default=0,
         description="Claude API tokens consumed (0 for native extraction methods)"
