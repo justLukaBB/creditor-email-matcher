@@ -78,8 +78,6 @@ Plans:
 
 **Requirements**: REQ-EXTRACT-01, REQ-EXTRACT-02, REQ-EXTRACT-03, REQ-EXTRACT-04, REQ-EXTRACT-05, REQ-EXTRACT-06, REQ-EXTRACT-07, REQ-EXTRACT-08, REQ-EXTRACT-09, REQ-INFRA-08
 
-**Research Flag**: NEEDS RESEARCH-PHASE for Claude Vision API integration (verify token limits, image size restrictions, batch processing patterns, current pricing).
-
 **Success Criteria** (what must be TRUE):
   1. PDF text extraction uses PyMuPDF first, falls back to Claude Vision for scanned/complex documents
   2. Page-by-page PDF processing respects token budget (max 10 pages or 100K tokens per job)
@@ -90,10 +88,15 @@ Plans:
   7. Cost circuit breaker halts processing if daily token threshold exceeded
   8. Attachments stored in GCS with temp file cleanup after processing
 
-**Plans**: TBD
+**Plans**: 6 plans
 
 Plans:
-- [ ] 03-01: TBD during planning
+- [ ] 03-01-PLAN.md -- Extraction result models and cost control infrastructure
+- [ ] 03-02-PLAN.md -- GCS attachment handler and format detection
+- [ ] 03-03-PLAN.md -- PDF extractor with PyMuPDF and Claude Vision fallback
+- [ ] 03-04-PLAN.md -- Email body, DOCX, and XLSX extractors
+- [ ] 03-05-PLAN.md -- Image extractor and extraction consolidator
+- [ ] 03-06-PLAN.md -- Content extraction Dramatiq actor and integration
 
 ---
 
@@ -260,7 +263,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 |-------|--------|-----------|
 | 1. Dual-Database Audit & Consistency | Complete ✓ | 2026-02-04 |
 | 2. Async Job Queue Infrastructure | Complete ✓ | 2026-02-04 |
-| 3. Multi-Format Document Extraction | Not started | - |
+| 3. Multi-Format Document Extraction | Planned | - |
 | 4. German Document Extraction & Validation | Not started | - |
 | 5. Multi-Agent Pipeline with Validation | Not started | - |
 | 6. Matching Engine Reconstruction | Not started | - |
@@ -321,4 +324,4 @@ Phase 4: German Document Extraction ---------> Phase 5: Multi-Agent Pipeline
 
 ---
 
-*Last updated: 2026-02-04 — Phase 2 complete*
+*Last updated: 2026-02-04 — Phase 3 planned (6 plans)*
