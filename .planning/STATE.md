@@ -6,23 +6,23 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** Gläubiger-Antworten werden zuverlässig dem richtigen Mandanten und Gläubiger zugeordnet und die Forderungsdaten korrekt in die Datenbank geschrieben — ohne manuellen Aufwand.
 
-**Current focus:** Phase 4 - German Document Extraction (VERIFIED COMPLETE)
+**Current focus:** Phase 5 - Multi-Agent Pipeline Validation
 
 ## Current Position
 
-Phase: 4 of 10 (German Document Extraction)
-Plan: 4 of 4 complete
-Status: Phase verified ✓
-Last activity: 2026-02-05 — Phase 4 verified (5/5 MUST requirements, goal achieved)
+Phase: 5 of 10 (Multi-Agent Pipeline Validation)
+Plan: 1 of 4 complete
+Status: In progress
+Last activity: 2026-02-05 — Completed 05-01-PLAN.md (Multi-Agent Pipeline Foundation)
 
-Progress: [████░░░░░░] 47%
+Progress: [████░░░░░░] 50%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 17
+- Total plans completed: 18
 - Average duration: 3.6 minutes
-- Total execution time: 1.0 hours
+- Total execution time: 1.1 hours
 
 **By Phase:**
 
@@ -32,6 +32,7 @@ Progress: [████░░░░░░] 47%
 | 2 | 4 | 13 min | 3.25 min |
 | 3 | 6 | 21 min | 3.5 min |
 | 4 | 4 | 13.5 min | 3.4 min |
+| 5 | 1 | 4 min | 4.0 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -48,7 +49,8 @@ Progress: [████░░░░░░] 47%
 - 04-02: 3.5 minutes (German amount parser with babel)
 - 04-03: 1.6 minutes (German Claude Vision prompts)
 - 04-04: 4.5 minutes (German extractor integration)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min
+- 05-01: 4.0 minutes (Multi-agent pipeline foundation with JSONB checkpoints)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min
 
 *Updated after each plan completion*
 
@@ -206,6 +208,16 @@ Recent decisions affecting current work:
 - Names failing validation included with LOW confidence instead of rejection (permissive extraction)
 - All German modules exported from extraction package __init__.py for clean imports
 
+**New from 05-01:**
+- JSONB agent_checkpoints column stores multi-agent pipeline intermediate results
+- Three agent namespaces: agent_1_intent, agent_2_extraction, agent_3_consolidation
+- EmailIntent enum with 6 types: debt_statement, payment_plan, rejection, inquiry, auto_reply, spam
+- Partial validation preserves valid fields, nulls failed fields, sets needs_review flag
+- 0.7 confidence threshold for needs_review flag (USER DECISION: fail-open, don't block pipeline)
+- Auto-add timestamp and validation_status to all checkpoints
+- flag_modified() for SQLAlchemy JSONB change detection
+- Skip-on-retry pattern: has_valid_checkpoint enables idempotent agent execution
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -223,9 +235,11 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 4 Verified:** All 4 plans complete and verified. German document extraction infrastructure ready for Phase 5 (Multi-Agent Pipeline).
-- 5/5 MUST requirements satisfied (REQ-GERMAN-01 through REQ-GERMAN-05)
-- REQ-GERMAN-06 (IBAN/BIC) deferred: out of scope per user decision
+**Phase 5 In Progress:** Plan 05-01 complete. Foundation infrastructure ready for agents 1-3.
+- Agent checkpoint storage (JSONB) in place
+- Intent classification models defined (6 intent types)
+- Validation utilities ready (partial validation, confidence checking)
+- Next: Implement Agent 1 (Intent Classifier) in plan 05-02
 
 **Production Deployment Required:** Phases 1, 2, 3, and 4 code complete but not deployed. Need to:
 1. Deploy to production environment with Procfile
@@ -242,9 +256,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Phase 4 verified complete (5/5 MUST requirements)
+Stopped at: Completed 05-01-PLAN.md (Multi-Agent Pipeline Foundation)
 Resume file: None
 
 ---
 
-**Next action:** Begin Phase 5 planning with `/gsd:discuss-phase 5` or `/gsd:plan-phase 5`.
+**Next action:** Continue Phase 5 with `/gsd:execute-plan 05-02` or complete remaining Phase 5 plans.
