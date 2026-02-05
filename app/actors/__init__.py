@@ -58,3 +58,4 @@ broker = setup_broker()
 
 # Actor imports (registered with broker on import)
 from app.actors import email_processor  # noqa: F401
+from app.actors import content_extractor  # noqa: F401
