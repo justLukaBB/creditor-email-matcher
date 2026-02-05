@@ -13,7 +13,7 @@ The v2 upgrade transforms a fragile monolithic webhook handler into a production
 - [x] **Phase 1: Dual-Database Audit & Consistency** - Fix PostgreSQL/MongoDB saga pattern to enable reliable matching
 - [x] **Phase 2: Async Job Queue Infrastructure** - Dramatiq + Redis for reliable batch processing
 - [x] **Phase 3: Multi-Format Document Extraction** - PyMuPDF + Claude Vision for PDFs, DOCX, XLSX, images
-- [ ] **Phase 4: German Document Extraction & Validation** - Umlaut handling, locale parsing, German prompts
+- [x] **Phase 4: German Document Extraction & Validation** - Umlaut handling, locale parsing, German prompts
 - [ ] **Phase 5: Multi-Agent Pipeline with Validation** - 3-agent architecture with validation layers
 - [ ] **Phase 6: Matching Engine Reconstruction** - Rebuild bypassed engine with explainability
 - [ ] **Phase 7: Confidence Scoring & Calibration** - Separate dimensions, threshold tuning, routing
@@ -120,10 +120,10 @@ Plans:
 **Plans**: 4 plans
 
 Plans:
-- [ ] 04-01-PLAN.md -- German text preprocessor with Unicode normalization and OCR correction
-- [ ] 04-02-PLAN.md -- German amount parser with babel locale support
-- [ ] 04-03-PLAN.md -- German Claude prompts for PDF and image extractors
-- [ ] 04-04-PLAN.md -- Pipeline integration for all text extractors
+- [x] 04-01-PLAN.md -- German text preprocessor with Unicode normalization and OCR correction
+- [x] 04-02-PLAN.md -- German amount parser with babel locale support
+- [x] 04-03-PLAN.md -- German Claude prompts for PDF and image extractors
+- [x] 04-04-PLAN.md -- Pipeline integration for all text extractors
 
 ---
 
@@ -269,7 +269,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 1. Dual-Database Audit & Consistency | Complete ✓ | 2026-02-04 |
 | 2. Async Job Queue Infrastructure | Complete ✓ | 2026-02-04 |
 | 3. Multi-Format Document Extraction | Complete ✓ | 2026-02-05 |
-| 4. German Document Extraction & Validation | Planned | - |
+| 4. German Document Extraction & Validation | Complete ✓ | 2026-02-05 |
 | 5. Multi-Agent Pipeline with Validation | Not started | - |
 | 6. Matching Engine Reconstruction | Not started | - |
 | 7. Confidence Scoring & Calibration | Not started | - |
@@ -329,4 +329,4 @@ Phase 4: German Document Extraction ---------> Phase 5: Multi-Agent Pipeline
 
 ---
 
-*Last updated: 2026-02-05 — Phase 4 planned (4 plans in 2 waves)*
+*Last updated: 2026-02-05 — Phase 4 complete (4 plans executed)*
