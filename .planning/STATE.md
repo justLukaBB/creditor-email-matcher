@@ -11,18 +11,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 6 of 10 (Matching Engine Reconstruction)
-Plan: 4 of 5 complete
-Status: In progress
-Last activity: 2026-02-05 — Completed 06-04-PLAN.md (Match Orchestrator)
+Plan: 5 of 5 complete
+Status: Phase complete
+Last activity: 2026-02-05 — Completed 06-05-PLAN.md (Pipeline Integration)
 
-Progress: [█████░░░░░] 56%
+Progress: [██████░░░░] 60%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 25
-- Average duration: 3.3 minutes
-- Total execution time: 1.5 hours
+- Total plans completed: 26
+- Average duration: 3.2 minutes
+- Total execution time: 1.6 hours
 
 **By Phase:**
 
@@ -33,7 +33,7 @@ Progress: [█████░░░░░] 56%
 | 3 | 6 | 21 min | 3.5 min |
 | 4 | 4 | 13.5 min | 3.4 min |
 | 5 | 5 | 17.7 min | 3.5 min |
-| 6 | 4 | 10.4 min | 2.6 min |
+| 6 | 5 | 14.5 min | 2.9 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -58,7 +58,8 @@ Progress: [█████░░░░░] 56%
 - 06-02: 2.6 minutes (Signal scorers and explainability with RapidFuzz 3.x)
 - 06-03: 2.4 minutes (Threshold management and matching strategies)
 - 06-04: 2.8 minutes (MatchingEngineV2 core orchestrator)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~2.5 min, signal scoring ~2.5 min, matching engine ~2.7 min
+- 06-05: 4.1 minutes (Pipeline integration with review queue routing)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min
 
 *Updated after each plan completion*
 
@@ -287,6 +288,16 @@ Recent decisions affecting current work:
 - MatchingResult statuses: auto_matched, ambiguous, below_threshold, no_candidates, no_recent_inquiry
 - Ambiguous matches route to manual review with top 3 candidates
 
+**New from 06-05:**
+- Email processor uses MatchingEngineV2 after multi-agent pipeline (Agent 1-3 → MatchingEngineV2)
+- enqueue_ambiguous_match service for matching-specific review enqueueing
+- Auto-matched: set matched_inquiry_id, proceed to DualDatabaseWriter, send notification
+- Ambiguous/below_threshold/no_recent_inquiry: enqueue to ManualReviewQueue
+- Match confidence stored as percentage (0-100) from matching score
+- Top-3 candidates with signal breakdown in review_details JSONB
+- Priority mapping: ambiguous_match=3, no_recent_inquiry=4, below_threshold=5
+- Application-level matching config: match_lookback_days=30, match_threshold_high=0.85, match_threshold_medium=0.70
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -304,14 +315,20 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 6 In Progress:** 4 of 5 plans complete.
+**Phase 6 Complete:** All 5 plans executed successfully.
 - 06-01 Complete: Database models (MatchingThreshold, CreditorInquiry, MatchResult)
 - 06-02 Complete: Signal scorers (name, reference) with RapidFuzz 3.x and ExplainabilityBuilder
 - 06-03 Complete: ThresholdManager and matching strategies (exact, fuzzy, combined)
 - 06-04 Complete: MatchingEngineV2 core orchestrator with creditor_inquiries filtering and gap threshold
-- Next: 06-05 (Pipeline Integration)
+- 06-05 Complete: Pipeline integration with review queue routing
+- Next: Phase 7 (Manual Review UI) or Phase 10 (Production Deployment)
 
-**Production Deployment Required:** Phases 1, 2, 3, and 4 code complete but not deployed. Need to:
+**Phase 6 Production Blockers:**
+- No migration for new models (MatchingThreshold, CreditorInquiry, MatchResult)
+- creditor_inquiries table requires historical data population (backfill or manual entry)
+- Manual review UI needed for reviewers to process ambiguous matches (Phase 7)
+
+**Production Deployment Required:** Phases 1-6 code complete but not deployed. Need to:
 1. Deploy to production environment with Procfile
 2. Configure REDIS_URL and SMTP environment variables
 3. Run migration: `alembic upgrade head`
@@ -326,9 +343,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Completed 06-04-PLAN.md (Match Orchestrator)
+Stopped at: Completed 06-05-PLAN.md (Pipeline Integration) - Phase 6 complete
 Resume file: None
 
 ---
 
-**Next action:** Continue Phase 6 with 06-05 (Pipeline Integration) to complete the phase.
+**Next action:** Phase 6 complete. Ready for Phase 7 (Manual Review UI) or Phase 10 (Production Deployment).
