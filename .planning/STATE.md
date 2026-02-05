@@ -11,17 +11,17 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 5 of 10 (Multi-Agent Pipeline Validation)
-Plan: 4 of 5 complete
-Status: In progress
-Last activity: 2026-02-05 — Completed 05-04-PLAN.md (Manual Review Queue Infrastructure)
+Plan: 5 of 5 complete
+Status: Phase complete
+Last activity: 2026-02-05 — Completed 05-05-PLAN.md (Multi-Agent Pipeline Integration)
 
-Progress: [████░░░░░░] 50%
+Progress: [█████░░░░░] 52%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 21
-- Average duration: 3.6 minutes
+- Total plans completed: 22
+- Average duration: 3.5 minutes
 - Total execution time: 1.3 hours
 
 **By Phase:**
@@ -32,7 +32,7 @@ Progress: [████░░░░░░] 50%
 | 2 | 4 | 13 min | 3.25 min |
 | 3 | 6 | 21 min | 3.5 min |
 | 4 | 4 | 13.5 min | 3.4 min |
-| 5 | 4 | 15.4 min | 3.9 min |
+| 5 | 5 | 17.7 min | 3.5 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -53,7 +53,8 @@ Progress: [████░░░░░░] 50%
 - 05-02: 3.1 minutes (Agent 1 Intent Classification)
 - 05-03: 3.5 minutes (Agent 3 Consolidation with conflict detection)
 - 05-04: 4.8 minutes (Manual review queue infrastructure)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min
+- 05-05: 2.3 minutes (Multi-agent pipeline integration)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~2.5 min
 
 *Updated after each plan completion*
 
@@ -245,6 +246,16 @@ Recent decisions affecting current work:
 - REST API with 6 endpoints: list, stats, claim, claim-next, resolve, email-detail
 - Review queue service helpers: enqueue_for_review, bulk_enqueue_for_review, enqueue_low_confidence_items
 
+**New from 05-05:**
+- Agent 2 (content_extractor) accepts intent_result parameter from Agent 1
+- Skip-on-retry pattern: Agent 2 checks for existing agent_2_extraction checkpoint before processing
+- Skip-extraction routing: auto_reply and spam intents skip extraction and complete as not_creditor_reply
+- Confidence threshold enforcement: Agent 1 confidence < 0.7 sets needs_review flag
+- Email_processor refactored to orchestrate 3-agent pipeline (Agent 1 -> Agent 2 -> Agent 3)
+- Automatic manual review queue enrollment when needs_review=True (conflict_detected or low_confidence reason)
+- extracted_data includes pipeline_metadata with intent, conflicts, validation_status
+- Complete multi-agent pipeline with checkpoints saved at each stage
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -262,11 +273,13 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 5 In Progress:** Plans 05-01, 05-02, 05-03, 05-04 complete.
-- Agent 1 (Intent Classification): complete with rule-based fast path and Claude fallback
-- Agent 3 (Consolidation): complete with conflict detection and needs_review flagging
-- Manual Review Queue: complete with claim concurrency and priority-based ordering
-- Next: Complete Phase 5 with plan 05-05 (End-to-End Integration)
+**Phase 5 Complete:** All 5 plans complete.
+- Agent 1 (Intent Classification): Rule-based fast path with Claude Haiku fallback
+- Agent 2 (Content Extraction): Checkpoint-aware with intent-based routing
+- Agent 3 (Consolidation): Conflict detection with needs_review flagging
+- Manual Review Queue: Claim concurrency with priority-based ordering
+- Pipeline Integration: Full 3-agent orchestration with automatic review queue enrollment
+- Next: Phase 6 (Matching Engine Reactivation)
 
 **Production Deployment Required:** Phases 1, 2, 3, and 4 code complete but not deployed. Need to:
 1. Deploy to production environment with Procfile
@@ -283,9 +296,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Completed 05-04-PLAN.md (Manual Review Queue Infrastructure)
+Stopped at: Completed 05-05-PLAN.md (Multi-Agent Pipeline Integration)
 Resume file: None
 
 ---
 
-**Next action:** Complete Phase 5 with `/gsd:execute-plan 05-05` (End-to-End Integration).
+**Next action:** Begin Phase 6 with `/gsd:plan-phase 06` (Matching Engine Reactivation).
