@@ -169,10 +169,14 @@ Plans:
   5. Multiple strategies available: exact match, fuzzy match, reference-based matching
   6. Ambiguous matches (multiple candidates above threshold) route to human review
 
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] 06-01: TBD during planning
+- [ ] 06-01-PLAN.md -- Database models (MatchingThreshold, CreditorInquiry, MatchResult) and migration
+- [ ] 06-02-PLAN.md -- Signal scorers (RapidFuzz) and ExplainabilityBuilder
+- [ ] 06-03-PLAN.md -- ThresholdManager and matching strategies (exact, fuzzy, combined)
+- [ ] 06-04-PLAN.md -- MatchingEngineV2 core with creditor_inquiries integration
+- [ ] 06-05-PLAN.md -- Pipeline integration and ambiguous match routing
 
 ---
 
@@ -275,7 +279,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 3. Multi-Format Document Extraction | Complete | 2026-02-05 |
 | 4. German Document Extraction & Validation | Complete | 2026-02-05 |
 | 5. Multi-Agent Pipeline with Validation | Complete | 2026-02-05 |
-| 6. Matching Engine Reconstruction | Not started | - |
+| 6. Matching Engine Reconstruction | Planned | - |
 | 7. Confidence Scoring & Calibration | Not started | - |
 | 8. Database-Backed Prompt Management | Not started | - |
 | 9. Production Hardening & Monitoring | Not started | - |
@@ -333,4 +337,4 @@ Phase 4: German Document Extraction ---------> Phase 5: Multi-Agent Pipeline
 
 ---
 
-*Last updated: 2026-02-05 — Phase 5 planned (5 plans in 3 waves)*
+*Last updated: 2026-02-05 — Phase 6 planned (5 plans in 4 waves)*
