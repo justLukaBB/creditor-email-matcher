@@ -11,16 +11,16 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 4 of 10 (German Document Extraction)
-Plan: 3 of 4 complete
-Status: In progress
-Last activity: 2026-02-05 — Completed 04-03-PLAN.md (German Claude Vision prompts)
+Plan: 4 of 4 complete
+Status: Phase complete
+Last activity: 2026-02-05 — Completed 04-04-PLAN.md (Extractor integration)
 
-Progress: [████░░░░░░] 44%
+Progress: [████░░░░░░] 47%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 16
+- Total plans completed: 17
 - Average duration: 3.6 minutes
 - Total execution time: 1.0 hours
 
@@ -31,7 +31,7 @@ Progress: [████░░░░░░] 44%
 | 1 | 4 | 21 min | 5.25 min |
 | 2 | 4 | 13 min | 3.25 min |
 | 3 | 6 | 21 min | 3.5 min |
-| 4 | 3 | 9 min | 3.0 min |
+| 4 | 4 | 13.5 min | 3.4 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -47,7 +47,8 @@ Progress: [████░░░░░░] 44%
 - 04-01: 3.5 minutes (German spell checker with pyspellchecker)
 - 04-02: 3.5 minutes (German amount parser with babel)
 - 04-03: 1.6 minutes (German Claude Vision prompts)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min
+- 04-04: 4.5 minutes (German extractor integration)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min
 
 *Updated after each plan completion*
 
@@ -196,6 +197,15 @@ Recent decisions affecting current work:
 - ASCII-safe characters (ae, oe, ue) in prompts to avoid encoding issues
 - EXTRACTION_PROMPT (PDF) and IMAGE_EXTRACTION_PROMPT (images) both German
 
+**New from 04-04:**
+- EmailBodyExtractor uses GermanTextPreprocessor.preprocess() before extraction
+- EmailBodyExtractor uses parse_german_amount() instead of manual string replacement
+- EmailBodyExtractor uses correct_name_field() for OCR correction on names
+- EmailBodyExtractor validates names via GermanValidator.validate_name() (REQ-GERMAN-04)
+- DOCXExtractor and XLSXExtractor apply same preprocessing and validation
+- Names failing validation included with LOW confidence instead of rejection (permissive extraction)
+- All German modules exported from extraction package __init__.py for clean imports
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -213,9 +223,9 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 4 In Progress:** 3 of 4 plans complete (spell checker, amount parser, German prompts). Remaining: integration with existing extractors.
+**Phase 4 Complete:** All 4 plans complete. German document extraction infrastructure ready for Phase 5 (Intent Classification).
 
-**Production Deployment Required:** Phases 1, 2, and 3 code complete but not deployed. Need to:
+**Production Deployment Required:** Phases 1, 2, 3, and 4 code complete but not deployed. Need to:
 1. Deploy to production environment with Procfile
 2. Configure REDIS_URL and SMTP environment variables
 3. Run migration: `alembic upgrade head`
@@ -230,9 +240,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Completed 04-03-PLAN.md execution - German Claude Vision prompts
+Stopped at: Completed 04-04-PLAN.md execution - German extractor integration (Phase 4 complete)
 Resume file: None
 
 ---
 
-**Next action:** Execute 04-04-PLAN.md (Integration with extractors).
+**Next action:** Begin Phase 5 (Intent Classification) - plan with `/gsd:plan-phase 05`.
