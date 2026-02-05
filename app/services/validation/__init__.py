@@ -14,6 +14,12 @@ from app.services.validation.conflict_detector import (
     detect_database_conflicts,
     resolve_conflict_by_majority
 )
+from app.services.validation.review_queue import (
+    enqueue_for_review,
+    bulk_enqueue_for_review,
+    enqueue_low_confidence_items,
+    get_priority_for_reason
+)
 
 __all__ = [
     "validate_with_partial_results",
@@ -23,4 +29,8 @@ __all__ = [
     "has_valid_checkpoint",
     "detect_database_conflicts",
     "resolve_conflict_by_majority",
+    "enqueue_for_review",
+    "bulk_enqueue_for_review",
+    "enqueue_low_confidence_items",
+    "get_priority_for_reason",
 ]
