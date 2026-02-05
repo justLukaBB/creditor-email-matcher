@@ -240,8 +240,46 @@ def process_email(email_id: int) -> None:
         email.processing_status = "parsed"
         db.commit()
 
-        # Step 3b: Phase 3 Content Extraction (email body + attachments)
-        logger.info("content_extraction_started", email_id=email_id)
+        # ========================================
+        # PHASE 5: Multi-Agent Pipeline
+        # ========================================
+
+        # Stage 1: Intent Classification (Agent 1)
+        logger.info("agent1_intent_classification_started", email_id=email_id)
+        email.processing_status = "intent_classifying"
+        db.commit()
+
+        from app.actors.intent_classifier import classify_intent
+        intent_result = classify_intent(email_id)
+
+        logger.info("agent1_intent_classification_completed",
+                   email_id=email_id,
+                   intent=intent_result.get("intent"),
+                   confidence=intent_result.get("confidence"),
+                   skip_extraction=intent_result.get("skip_extraction"))
+
+        # Handle skip_extraction intents (auto_reply, spam)
+        if intent_result.get("skip_extraction"):
+            logger.info("skip_extraction_intent_detected",
+                       email_id=email_id,
+                       intent=intent_result.get("intent"))
+            email.processing_status = "not_creditor_reply"
+            email.match_status = "no_match"
+            email.completed_at = datetime.utcnow()
+            email.processed_at = datetime.utcnow()
+
+            # Store intent in extracted_data for reference
+            email.extracted_data = {
+                "is_creditor_reply": False,
+                "intent": intent_result.get("intent"),
+                "confidence": intent_result.get("confidence"),
+                "method": "intent_classification"
+            }
+            db.commit()
+            return
+
+        # Stage 2: Content Extraction (Agent 2)
+        logger.info("agent2_content_extraction_started", email_id=email_id)
         email.processing_status = "content_extracting"
         db.commit()
 
@@ -253,36 +291,86 @@ def process_email(email_id: int) -> None:
         # Get attachment URLs from JSON column (populated by webhook in Phase 2)
         attachment_urls = email.attachment_urls or []
 
-        # Run Phase 3 extraction pipeline
-        extraction_service = ContentExtractionService(redis_client=_get_redis_client())
-        phase3_result = extraction_service.extract_all(
+        # Call Agent 2 extraction with intent_result
+        from app.actors.content_extractor import extract_content
+        extraction_result = extract_content(
+            email_id=email_id,
             email_body=email_body_for_extraction,
-            attachment_urls=attachment_urls
+            attachment_urls=attachment_urls,
+            intent_result=intent_result
         )
 
-        # Store Phase 3 results in extracted_data with backward-compatible schema
+        logger.info("agent2_content_extraction_completed",
+                   email_id=email_id,
+                   amount=extraction_result.get("gesamtforderung"),
+                   confidence=extraction_result.get("confidence"),
+                   sources=extraction_result.get("sources_processed"),
+                   needs_review=extraction_result.get("needs_review"))
+
+        # Stage 3: Consolidation (Agent 3)
+        logger.info("agent3_consolidation_started", email_id=email_id)
+        email.processing_status = "consolidating"
+        db.commit()
+
+        from app.actors.consolidation_agent import consolidate_results
+        consolidation_result = consolidate_results(email_id)
+
+        logger.info("agent3_consolidation_completed",
+                   email_id=email_id,
+                   final_amount=consolidation_result.get("final_amount"),
+                   conflicts_detected=consolidation_result.get("conflicts_detected"),
+                   needs_review=consolidation_result.get("needs_review"),
+                   validation_status=consolidation_result.get("validation_status"))
+
+        # Store pipeline results in extracted_data with pipeline_metadata
         email.extracted_data = {
-            "is_creditor_reply": True,  # Phase 5 will add intent classification
-            "client_name": phase3_result.client_name,
-            "creditor_name": phase3_result.creditor_name,
-            "debt_amount": phase3_result.gesamtforderung,
+            "is_creditor_reply": True,
+            "client_name": consolidation_result.get("client_name"),
+            "creditor_name": consolidation_result.get("creditor_name"),
+            "debt_amount": consolidation_result.get("final_amount"),
             "reference_numbers": [],  # Phase 4 will extract reference numbers
-            "confidence": _confidence_to_float(phase3_result.confidence),
-            "extraction_metadata": {
-                "sources_processed": phase3_result.sources_processed,
-                "sources_with_amount": phase3_result.sources_with_amount,
-                "total_tokens_used": phase3_result.total_tokens_used,
-                "method": "phase3_extraction"
+            "confidence": consolidation_result.get("confidence", 0.7),
+            "pipeline_metadata": {
+                "intent": intent_result.get("intent"),
+                "intent_confidence": intent_result.get("confidence"),
+                "sources_processed": consolidation_result.get("sources_processed", 0),
+                "total_tokens_used": consolidation_result.get("total_tokens_used", 0),
+                "conflicts_detected": consolidation_result.get("conflicts_detected", 0),
+                "needs_review": consolidation_result.get("needs_review", False),
+                "validation_status": consolidation_result.get("validation_status"),
+                "method": "multi_agent_pipeline"
             }
         }
+
+        # Enqueue to ManualReviewQueue if needs_review
+        if consolidation_result.get("needs_review"):
+            logger.info("enqueuing_for_manual_review", email_id=email_id)
+            from app.services.validation import enqueue_for_review
+
+            # Determine review reason
+            conflicts = consolidation_result.get("conflicts_detected", 0)
+            if conflicts > 0:
+                reason = "conflict_detected"
+                details = {
+                    "conflicts": consolidation_result.get("conflicts", []),
+                    "confidence": consolidation_result.get("confidence")
+                }
+            else:
+                reason = "low_confidence"
+                details = {
+                    "confidence": consolidation_result.get("confidence"),
+                    "threshold": 0.7
+                }
+
+            enqueue_for_review(db, email_id, reason, details)
+
         email.processing_status = "content_extracted"
         db.commit()
 
-        logger.info("content_extraction_completed",
+        logger.info("multi_agent_pipeline_completed",
                    email_id=email_id,
-                   amount=phase3_result.gesamtforderung,
-                   confidence=phase3_result.confidence,
-                   sources=phase3_result.sources_processed)
+                   amount=consolidation_result.get("final_amount"),
+                   needs_review=consolidation_result.get("needs_review"))
 
         # Step 4: Extract entities with LLM
         logger.info("extracting_entities",
