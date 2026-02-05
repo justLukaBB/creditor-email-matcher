@@ -6,13 +6,14 @@ Provides REST endpoints for human review workflow
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from typing import Optional
+from typing import Optional, Dict, Any
 from pydantic import BaseModel
 import structlog
 
 from app.database import get_db
 from app.models.manual_review import ManualReviewQueue
 from app.models.incoming_email import IncomingEmail
+from app.services.calibration import capture_calibration_sample
 
 logger = structlog.get_logger()
 
@@ -28,6 +29,7 @@ class ResolveRequest(BaseModel):
     """Request body for resolving a review item"""
     resolution: str  # approved, rejected, corrected, escalated, spam
     notes: Optional[str] = None
+    corrected_data: Optional[Dict[str, Any]] = None  # For corrections
 
 
 @router.get("")
@@ -361,6 +363,20 @@ async def resolve_review(
     item.resolved_at = func.now()
     item.resolution = request.resolution
     item.resolution_notes = request.notes
+
+    # Capture calibration sample for approved/corrected resolutions
+    if request.resolution in ("approved", "corrected"):
+        # Load email for calibration
+        email = db.query(IncomingEmail).filter(IncomingEmail.id == item.email_id).first()
+        if email:
+            capture_calibration_sample(
+                db=db,
+                review_item=item,
+                email=email,
+                resolution=request.resolution,
+                corrected_data=request.corrected_data
+            )
+
     db.commit()
     db.refresh(item)
 
