@@ -12,12 +12,17 @@ from .detector import (
     FileFormat,
     SUPPORTED_FORMATS,
 )
+from .pdf_extractor import PDFExtractor, EXTRACTION_PROMPT
 
 __all__ = [
+    # Format detection
     "detect_file_format",
     "is_scanned_pdf",
     "is_encrypted_pdf",
     "get_pdf_page_count",
     "FileFormat",
     "SUPPORTED_FORMATS",
+    # PDF extraction
+    "PDFExtractor",
+    "EXTRACTION_PROMPT",
 ]
