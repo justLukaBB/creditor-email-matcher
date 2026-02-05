@@ -11,17 +11,17 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 4 of 10 (German Document Extraction)
-Plan: 2 of 4 complete
+Plan: 3 of 4 complete
 Status: In progress
-Last activity: 2026-02-05 — Completed 04-02-PLAN.md (German amount parser)
+Last activity: 2026-02-05 — Completed 04-03-PLAN.md (German Claude Vision prompts)
 
-Progress: [████░░░░░░] 42%
+Progress: [████░░░░░░] 44%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 15
-- Average duration: 3.8 minutes
+- Total plans completed: 16
+- Average duration: 3.6 minutes
 - Total execution time: 1.0 hours
 
 **By Phase:**
@@ -31,7 +31,7 @@ Progress: [████░░░░░░] 42%
 | 1 | 4 | 21 min | 5.25 min |
 | 2 | 4 | 13 min | 3.25 min |
 | 3 | 6 | 21 min | 3.5 min |
-| 4 | 2 | 7 min | 3.5 min |
+| 4 | 3 | 9 min | 3.0 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -46,7 +46,8 @@ Progress: [████░░░░░░] 42%
 - 03-06: 4 minutes (Extraction orchestration and email processor integration)
 - 04-01: 3.5 minutes (German spell checker with pyspellchecker)
 - 04-02: 3.5 minutes (German amount parser with babel)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min
+- 04-03: 1.6 minutes (German Claude Vision prompts)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min
 
 *Updated after each plan completion*
 
@@ -188,6 +189,13 @@ Recent decisions affecting current work:
 - extract_amount_from_text() regex helper for finding amounts in German text
 - Currency symbol stripping (EUR, Euro, €) before parsing
 
+**New from 04-03:**
+- German Claude Vision prompts with German examples (USER DECISION)
+- German synonym support: Schulden, offener Betrag, Restschuld, Forderungshoehe, Gesamtsumme
+- Realistic German creditor response patterns in prompts
+- ASCII-safe characters (ae, oe, ue) in prompts to avoid encoding issues
+- EXTRACTION_PROMPT (PDF) and IMAGE_EXTRACTION_PROMPT (images) both German
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -205,7 +213,7 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 4 In Progress:** 2 of 4 plans complete (spell checker, amount parser). Remaining: reference number extraction, integration with existing extractors.
+**Phase 4 In Progress:** 3 of 4 plans complete (spell checker, amount parser, German prompts). Remaining: integration with existing extractors.
 
 **Production Deployment Required:** Phases 1, 2, and 3 code complete but not deployed. Need to:
 1. Deploy to production environment with Procfile
@@ -222,9 +230,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Completed 04-02-PLAN.md execution - German amount parser with babel
+Stopped at: Completed 04-03-PLAN.md execution - German Claude Vision prompts
 Resume file: None
 
 ---
 
-**Next action:** Execute 04-03-PLAN.md (Reference number extraction) or 04-04-PLAN.md (Integration with extractors).
+**Next action:** Execute 04-04-PLAN.md (Integration with extractors).
