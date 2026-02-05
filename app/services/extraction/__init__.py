@@ -19,6 +19,9 @@ from .docx_extractor import DOCXExtractor
 from .xlsx_extractor import XLSXExtractor
 from .image_extractor import ImageExtractor, IMAGE_EXTRACTION_PROMPT
 from .consolidator import ExtractionConsolidator
+from .german_preprocessor import GermanTextPreprocessor
+from .german_validator import GermanValidator
+from .german_parser import parse_german_amount, extract_amount_from_text
 
 __all__ = [
     # Format detection
@@ -40,4 +43,9 @@ __all__ = [
     "XLSXExtractor",
     # Consolidation
     "ExtractionConsolidator",
+    # German text processing
+    "GermanTextPreprocessor",
+    "GermanValidator",
+    "parse_german_amount",
+    "extract_amount_from_text",
 ]
