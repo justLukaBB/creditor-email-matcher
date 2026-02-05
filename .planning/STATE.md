@@ -11,18 +11,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 3 of 10 (Multi-Format Document Extraction)
-Plan: 4 of 6 complete
+Plan: 5 of 6 complete
 Status: In progress
-Last activity: 2026-02-05 — Completed 03-04-PLAN.md (Email body, DOCX, XLSX extractors)
+Last activity: 2026-02-05 — Completed 03-05-PLAN.md (Image extractor and consolidator)
 
-Progress: [███░░░░░░░] 31%
+Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 12
-- Average duration: 4.0 minutes
-- Total execution time: 0.80 hours
+- Total plans completed: 13
+- Average duration: 3.9 minutes
+- Total execution time: 0.85 hours
 
 **By Phase:**
 
@@ -30,7 +30,7 @@ Progress: [███░░░░░░░] 31%
 |-------|-------|-------|----------|
 | 1 | 4 | 21 min | 5.25 min |
 | 2 | 4 | 13 min | 3.25 min |
-| 3 | 4 | 14 min | 3.5 min |
+| 3 | 5 | 17 min | 3.4 min |
 
 **Recent Trend:**
 - 01-04: 5 minutes (audit service with CLI script)
@@ -42,6 +42,7 @@ Progress: [███░░░░░░░] 31%
 - 03-02: 3 minutes (GCS storage client and format detection)
 - 03-03: 4 minutes (PDF extractor with PyMuPDF and Claude Vision)
 - 03-04: 4 minutes (Email body, DOCX, XLSX extractors)
+- 03-05: 3 minutes (Image extractor and consolidator)
 - Trend: Schema/model updates ~3 min, API/integration work ~5 min, extractor creation ~3-4 min
 
 *Updated after each plan completion*
@@ -149,6 +150,16 @@ Recent decisions affecting current work:
 - All extractors return consistent SourceExtractionResult with tokens_used=0
 - Confidence scoring: HIGH for German format (has comma), MEDIUM otherwise
 
+**New from 03-05:**
+- ImageExtractor for JPG/PNG using Claude Vision API with MEDIUM confidence
+- Large images (>5MB) resized to 1500px max before API call
+- Temp files from resize cleaned up in finally block using os.unlink
+- ExtractionConsolidator with highest-amount-wins rule (USER DECISION locked)
+- Default to 100 EUR when no amount found (USER DECISION locked)
+- Weakest-link confidence calculation across all sources
+- Amount deduplication within 1 EUR threshold
+- Best name selection: HIGH confidence first, then longest name
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -190,9 +201,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Completed 03-04-PLAN.md execution - Email body, DOCX, XLSX extractors
+Stopped at: Completed 03-05-PLAN.md execution - Image extractor and consolidator
 Resume file: None
 
 ---
 
-**Next action:** Continue Phase 3. Execute 03-05-PLAN.md (Image extractor with Claude Vision) or 03-06-PLAN.md (Extraction orchestration).
+**Next action:** Continue Phase 3. Execute 03-06-PLAN.md (Extraction orchestration) to complete Phase 3.
