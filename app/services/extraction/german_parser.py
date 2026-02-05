@@ -56,21 +56,46 @@ def parse_german_amount(amount_str: str) -> float:
 
     log = logger.bind(original=amount_str, cleaned=cleaned)
 
-    # Try German locale first (USER DECISION)
-    try:
-        result = float(parse_decimal(cleaned, locale='de_DE'))
-        log.debug("amount_parsed", locale="de_DE", result=result)
-        return result
-    except (NumberFormatError, ValueError) as e:
-        log.debug("german_parse_failed", error=str(e))
+    # Detect format based on pattern to avoid ambiguous parsing
+    # If ends with .XX (2 digits after period), it's likely US format
+    # If ends with ,XX (2 digits after comma), it's likely German format
+    has_comma = ',' in cleaned
+    has_period = '.' in cleaned
 
-    # Fallback to US locale
-    try:
-        result = float(parse_decimal(cleaned, locale='en_US'))
-        log.debug("amount_parsed", locale="en_US", result=result)
-        return result
-    except (NumberFormatError, ValueError) as e:
-        log.debug("us_parse_failed", error=str(e))
+    # Pattern detection: US format typically has period before last 2 digits
+    us_pattern = re.search(r'\.\d{2}$', cleaned)
+    # German pattern typically has comma before last 2 digits
+    german_pattern = re.search(r',\d{2}$', cleaned)
+
+    # Determine which locale to try first based on pattern
+    if german_pattern and not us_pattern:
+        # Clearly German format (ends with ,XX)
+        locales = ['de_DE', 'en_US']
+    elif us_pattern and not german_pattern:
+        # Clearly US format (ends with .XX)
+        locales = ['en_US', 'de_DE']
+    elif has_comma and has_period:
+        # Both separators present - use position to decide
+        # If comma comes after period, it's German (1.234,56)
+        # If period comes after comma, it's US (1,234.56)
+        comma_pos = cleaned.rfind(',')
+        period_pos = cleaned.rfind('.')
+        if comma_pos > period_pos:
+            locales = ['de_DE', 'en_US']
+        else:
+            locales = ['en_US', 'de_DE']
+    else:
+        # Single separator or no decimals - try German first (USER DECISION)
+        locales = ['de_DE', 'en_US']
+
+    # Try locales in determined order
+    for locale in locales:
+        try:
+            result = float(parse_decimal(cleaned, locale=locale))
+            log.debug("amount_parsed", locale=locale, result=result)
+            return result
+        except (NumberFormatError, ValueError) as e:
+            log.debug("parse_failed", locale=locale, error=str(e))
 
     # Both failed - raise with helpful message
     raise ValueError(
