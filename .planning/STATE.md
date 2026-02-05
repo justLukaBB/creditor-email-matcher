@@ -11,17 +11,17 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 6 of 10 (Matching Engine Reconstruction)
-Plan: 1 of 5 complete
+Plan: 3 of 5 complete
 Status: In progress
-Last activity: 2026-02-05 — Completed 06-02-PLAN.md (Signal Scorers and Explainability)
+Last activity: 2026-02-05 — Completed 06-03-PLAN.md (Threshold Management and Matching Strategies)
 
-Progress: [█████░░░░░] 52%
+Progress: [█████░░░░░] 54%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 23
-- Average duration: 3.5 minutes
+- Total plans completed: 24
+- Average duration: 3.4 minutes
 - Total execution time: 1.4 hours
 
 **By Phase:**
@@ -33,7 +33,7 @@ Progress: [█████░░░░░] 52%
 | 3 | 6 | 21 min | 3.5 min |
 | 4 | 4 | 13.5 min | 3.4 min |
 | 5 | 5 | 17.7 min | 3.5 min |
-| 6 | 1 | 2.6 min | 2.6 min |
+| 6 | 3 | 7.6 min | 2.5 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -56,6 +56,7 @@ Progress: [█████░░░░░] 52%
 - 05-04: 4.8 minutes (Manual review queue infrastructure)
 - 05-05: 2.3 minutes (Multi-agent pipeline integration)
 - 06-02: 2.6 minutes (Signal scorers and explainability with RapidFuzz 3.x)
+- 06-03: 2.4 minutes (Threshold management and matching strategies)
 - Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~2.5 min, signal scoring ~2.5 min
 
 *Updated after each plan completion*
@@ -267,6 +268,15 @@ Recent decisions affecting current work:
 - Signal scorers return (score, details) tuple for explainability
 - Explainability includes signal scores, weighted scores, algorithm used, gap detection, filters applied
 
+**New from 06-03:**
+- ThresholdManager queries MatchingThreshold table with category → default → hardcoded fallback
+- Hardcoded fallback defaults: 0.70 min_match, 0.15 gap_threshold, 40% name / 60% reference weights
+- ExactMatchStrategy returns 1.0 only if both name AND reference match exactly (case-insensitive)
+- FuzzyMatchStrategy uses signal scorers with weighted average, zeros score if either signal is 0
+- CombinedStrategy tries exact first (performance), falls back to fuzzy (robustness)
+- All strategies enforce "both signals required" rule from CONTEXT.MD
+- StrategyResult dataclass: score, component_scores, signal_details, strategy_used
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -284,9 +294,11 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 6 In Progress:** 1 of 5 plans complete.
+**Phase 6 In Progress:** 3 of 5 plans complete.
+- 06-01 Complete: Database models (MatchingThreshold, CreditorInquiry, MatchResult)
 - 06-02 Complete: Signal scorers (name, reference) with RapidFuzz 3.x and ExplainabilityBuilder
-- Next: 06-03 (Candidate Retrieval), 06-04 (Match Orchestrator), 06-05 (Integration)
+- 06-03 Complete: ThresholdManager and matching strategies (exact, fuzzy, combined)
+- Next: 06-04 (Match Orchestrator), 06-05 (Integration)
 
 **Production Deployment Required:** Phases 1, 2, 3, and 4 code complete but not deployed. Need to:
 1. Deploy to production environment with Procfile
@@ -303,7 +315,7 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Completed 06-02-PLAN.md (Signal Scorers and Explainability)
+Stopped at: Completed 06-03-PLAN.md (Threshold Management and Matching Strategies)
 Resume file: None
 
 ---
