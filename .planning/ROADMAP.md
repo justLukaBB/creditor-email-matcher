@@ -115,10 +115,15 @@ Plans:
   5. OCR post-processing corrects common errors (ii->ue, ss->sz)
   6. IBAN/BIC validation includes checksum verification to catch OCR errors
 
-**Plans**: TBD
+**NOTE:** User marked IBAN/BIC (Success Criterion 6) as out of scope during context gathering.
+
+**Plans**: 4 plans
 
 Plans:
-- [ ] 04-01: TBD during planning
+- [ ] 04-01-PLAN.md -- German text preprocessor with Unicode normalization and OCR correction
+- [ ] 04-02-PLAN.md -- German amount parser with babel locale support
+- [ ] 04-03-PLAN.md -- German Claude prompts for PDF and image extractors
+- [ ] 04-04-PLAN.md -- Pipeline integration for all text extractors
 
 ---
 
@@ -264,7 +269,7 @@ Phases execute in numeric order: 1 -> 2 -> 3 -> 4 -> 5 -> 6 -> 7 -> 8 -> 9 -> 10
 | 1. Dual-Database Audit & Consistency | Complete ✓ | 2026-02-04 |
 | 2. Async Job Queue Infrastructure | Complete ✓ | 2026-02-04 |
 | 3. Multi-Format Document Extraction | Complete ✓ | 2026-02-05 |
-| 4. German Document Extraction & Validation | Not started | - |
+| 4. German Document Extraction & Validation | Planned | - |
 | 5. Multi-Agent Pipeline with Validation | Not started | - |
 | 6. Matching Engine Reconstruction | Not started | - |
 | 7. Confidence Scoring & Calibration | Not started | - |
@@ -324,4 +329,4 @@ Phase 4: German Document Extraction ---------> Phase 5: Multi-Agent Pipeline
 
 ---
 
-*Last updated: 2026-02-05 — Phase 3 complete (6 plans executed)*
+*Last updated: 2026-02-05 — Phase 4 planned (4 plans in 2 waves)*
