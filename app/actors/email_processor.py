@@ -224,6 +224,8 @@ def process_email(email_id: int) -> None:
         from app.services.idempotency import IdempotencyService, generate_idempotency_key
         from app.services.email_notifier import email_notifier
         from app.actors.content_extractor import ContentExtractionService
+        from app.services.matching_engine_v2 import MatchingEngineV2
+        from app.services.review_queue import enqueue_ambiguous_match
         from app.config import settings
 
         # Step 3: Parse email
@@ -372,7 +374,7 @@ def process_email(email_id: int) -> None:
                    amount=consolidation_result.get("final_amount"),
                    needs_review=consolidation_result.get("needs_review"))
 
-        # Step 4: Extract entities with LLM
+        # Step 4: Extract entities with LLM (for reference_numbers and summary)
         logger.info("extracting_entities",
                    email_id=email_id,
                    llm_provider=settings.llm_provider)
@@ -420,8 +422,12 @@ def process_email(email_id: int) -> None:
             db.commit()
             return
 
-        # Step 6: Match and write using DualDatabaseWriter saga pattern
-        logger.info("matching_and_writing",
+        # ========================================
+        # PHASE 6: MatchingEngineV2 Integration
+        # ========================================
+
+        # Step 6: Match using MatchingEngineV2
+        logger.info("matching_started",
                    email_id=email_id,
                    client_name=extracted_entities.client_name,
                    creditor_name=extracted_entities.creditor_name)
@@ -434,14 +440,14 @@ def process_email(email_id: int) -> None:
         creditor_name = final_extracted.get("creditor_name")
         creditor_email = email.from_email
         new_debt_amount = final_extracted.get("debt_amount")
+        reference_numbers = final_extracted.get("reference_numbers", [])
 
-        # Validate required fields
-        if not client_name or not (creditor_name or creditor_email) or not new_debt_amount:
-            logger.warning("missing_required_fields",
+        # Validate required fields for matching
+        if not client_name or not (creditor_name or creditor_email):
+            logger.warning("missing_required_fields_for_matching",
                           email_id=email_id,
                           has_client=bool(client_name),
-                          has_creditor=bool(creditor_name or creditor_email),
-                          has_amount=bool(new_debt_amount))
+                          has_creditor=bool(creditor_name or creditor_email))
             email.processing_status = "completed"
             email.match_status = "no_match"
             email.completed_at = datetime.utcnow()
@@ -449,82 +455,144 @@ def process_email(email_id: int) -> None:
             db.commit()
             return
 
-        # Extract aktenzeichen from reference numbers
-        client_aktenzeichen = None
-        reference_numbers = final_extracted.get("reference_numbers", [])
-        if reference_numbers:
-            for ref in reference_numbers:
-                if ref.isdigit() and len(ref) >= 4:
-                    client_aktenzeichen = ref
-                    break
-
-        # Use creditor email as fallback if name not extracted
-        creditor_name_or_email = creditor_name or creditor_email
-
-        # Generate idempotency key
-        idempotency_key = generate_idempotency_key(
-            operation="creditor_debt_update",
-            aggregate_id=str(email_id),
-            payload={
-                "client_name": client_name,
-                "creditor_email": creditor_email,
-                "amount": new_debt_amount
-            }
+        # Create MatchingEngineV2 instance
+        engine = MatchingEngineV2(
+            db=db,
+            lookback_days=settings.match_lookback_days
         )
 
-        # Create DualDatabaseWriter with current session
-        idempotency_svc = IdempotencyService(SessionLocal)
-        dual_writer = DualDatabaseWriter(db, idempotency_svc)
+        # Build matching input from extracted data
+        matching_input = {
+            "client_name": client_name,
+            "creditor_name": creditor_name,
+            "reference_numbers": reference_numbers,
+        }
 
-        # Execute saga pattern: PG write + outbox (atomic)
-        result = dual_writer.update_creditor_debt(
+        # Call engine.find_match()
+        matching_result = engine.find_match(
             email_id=email_id,
-            client_name=client_name,
-            client_aktenzeichen=client_aktenzeichen,
-            creditor_email=creditor_email,
-            creditor_name=creditor_name_or_email,
-            new_debt_amount=new_debt_amount,
-            response_text=final_extracted.get("summary"),
-            reference_numbers=reference_numbers,
-            idempotency_key=idempotency_key
+            extracted_data=matching_input,
+            from_email=creditor_email,
+            received_at=email.received_at or datetime.utcnow(),
+            creditor_category="default"
         )
 
-        # Commit PostgreSQL transaction (outbox message included atomically)
-        db.commit()
+        # Save match results with explainability JSONB
+        engine.save_match_results(email_id, matching_result)
 
-        # Attempt MongoDB write (post-commit, compensatable)
-        mongodb_success = False
-        if result.get("outbox_message_id"):
-            mongodb_success = dual_writer.execute_mongodb_write(result["outbox_message_id"])
+        logger.info("matching_completed",
+                   email_id=email_id,
+                   status=matching_result.status,
+                   candidates_count=len(matching_result.candidates))
 
-        # Update match status based on MongoDB write result
-        if mongodb_success:
-            email.match_status = "auto_matched"
-            email.match_confidence = 100
-            logger.info("mongodb_update_success",
+        # Handle matching outcomes
+        if matching_result.status == "auto_matched":
+            # AUTO-MATCHED: Proceed to DualDatabaseWriter
+            logger.info("auto_matched",
                        email_id=email_id,
-                       client_name=client_name,
-                       creditor_name=creditor_name_or_email,
-                       amount=new_debt_amount)
+                       inquiry_id=matching_result.match.inquiry.id,
+                       score=matching_result.match.total_score)
 
-            # Send email notification on successful auto-match
-            email_notifier.send_debt_update_notification(
-                client_name=client_name,
-                creditor_name=creditor_name_or_email,
-                creditor_email=creditor_email,
-                old_debt_amount=None,
-                new_debt_amount=new_debt_amount,
-                side_conversation_id="N/A",
-                zendesk_ticket_id=email.zendesk_ticket_id,
-                reference_numbers=reference_numbers,
-                confidence_score=1.0
+            # Set matched_inquiry_id from the matched candidate
+            matched_inquiry = matching_result.match.inquiry
+            email.matched_inquiry_id = matched_inquiry.id
+
+            # Extract aktenzeichen from reference numbers
+            client_aktenzeichen = None
+            if reference_numbers:
+                for ref in reference_numbers:
+                    if ref.isdigit() and len(ref) >= 4:
+                        client_aktenzeichen = ref
+                        break
+
+            # Use creditor email as fallback if name not extracted
+            creditor_name_or_email = creditor_name or creditor_email
+
+            # Generate idempotency key
+            idempotency_key = generate_idempotency_key(
+                operation="creditor_debt_update",
+                aggregate_id=str(email_id),
+                payload={
+                    "client_name": client_name,
+                    "creditor_email": creditor_email,
+                    "amount": new_debt_amount
+                }
             )
+
+            # Create DualDatabaseWriter with current session
+            idempotency_svc = IdempotencyService(SessionLocal)
+            dual_writer = DualDatabaseWriter(db, idempotency_svc)
+
+            # Execute saga pattern: PG write + outbox (atomic)
+            result = dual_writer.update_creditor_debt(
+                email_id=email_id,
+                client_name=client_name,
+                client_aktenzeichen=client_aktenzeichen,
+                creditor_email=creditor_email,
+                creditor_name=creditor_name_or_email,
+                new_debt_amount=new_debt_amount,
+                response_text=final_extracted.get("summary"),
+                reference_numbers=reference_numbers,
+                idempotency_key=idempotency_key
+            )
+
+            # Commit PostgreSQL transaction (outbox message included atomically)
+            db.commit()
+
+            # Attempt MongoDB write (post-commit, compensatable)
+            mongodb_success = False
+            if result.get("outbox_message_id"):
+                mongodb_success = dual_writer.execute_mongodb_write(result["outbox_message_id"])
+
+            # Update match status based on MongoDB write result
+            if mongodb_success:
+                email.match_status = "auto_matched"
+                email.match_confidence = int(matching_result.match.total_score * 100)
+                logger.info("mongodb_update_success",
+                           email_id=email_id,
+                           client_name=client_name,
+                           creditor_name=creditor_name_or_email,
+                           amount=new_debt_amount)
+
+                # Send email notification on successful auto-match
+                email_notifier.send_debt_update_notification(
+                    client_name=client_name,
+                    creditor_name=creditor_name_or_email,
+                    creditor_email=creditor_email,
+                    old_debt_amount=None,
+                    new_debt_amount=new_debt_amount,
+                    side_conversation_id="N/A",
+                    zendesk_ticket_id=email.zendesk_ticket_id,
+                    reference_numbers=reference_numbers,
+                    confidence_score=matching_result.match.total_score
+                )
+            else:
+                email.match_status = "no_match"
+                logger.warning("mongodb_update_failed",
+                              email_id=email_id,
+                              client_name=client_name,
+                              creditor_name=creditor_name_or_email)
+
         else:
-            email.match_status = "no_match"
-            logger.warning("mongodb_update_failed",
-                          email_id=email_id,
-                          client_name=client_name,
-                          creditor_name=creditor_name_or_email)
+            # AMBIGUOUS / BELOW_THRESHOLD / NO_RECENT_INQUIRY: Enqueue to ManualReviewQueue
+            logger.info("non_auto_matched_enqueuing_for_review",
+                       email_id=email_id,
+                       status=matching_result.status)
+
+            review_id = enqueue_ambiguous_match(db, email_id, matching_result)
+
+            if review_id:
+                email.match_status = "needs_review"
+                email.match_confidence = int(matching_result.candidates[0].total_score * 100) if matching_result.candidates else 0
+                logger.info("enqueued_for_manual_review",
+                           email_id=email_id,
+                           review_id=review_id,
+                           status=matching_result.status)
+            else:
+                # Duplicate skipped
+                email.match_status = "needs_review"
+                logger.info("review_queue_duplicate",
+                           email_id=email_id)
 
         # Step 7: Mark as completed
         email.processing_status = "completed"
