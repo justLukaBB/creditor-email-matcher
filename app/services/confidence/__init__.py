@@ -5,8 +5,11 @@ Dimension-based confidence calculation for extraction and matching stages.
 """
 
 from .dimensions import calculate_extraction_confidence, calculate_match_confidence
+from .overall import calculate_overall_confidence, OverallConfidence
 
 __all__ = [
     "calculate_extraction_confidence",
     "calculate_match_confidence",
+    "calculate_overall_confidence",
+    "OverallConfidence",
 ]
