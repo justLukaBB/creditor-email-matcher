@@ -6,23 +6,23 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** Gläubiger-Antworten werden zuverlässig dem richtigen Mandanten und Gläubiger zugeordnet und die Forderungsdaten korrekt in die Datenbank geschrieben — ohne manuellen Aufwand.
 
-**Current focus:** Phase 5 - Multi-Agent Pipeline (VERIFIED COMPLETE)
+**Current focus:** Phase 6 - Matching Engine Reconstruction
 
 ## Current Position
 
-Phase: 5 of 10 (Multi-Agent Pipeline)
-Plan: 5 of 5 complete
-Status: Phase verified ✓
-Last activity: 2026-02-05 — Phase 5 verified (7/7 must-haves, 8/8 requirements satisfied)
+Phase: 6 of 10 (Matching Engine Reconstruction)
+Plan: 1 of 5 complete
+Status: In progress
+Last activity: 2026-02-05 — Completed 06-02-PLAN.md (Signal Scorers and Explainability)
 
-Progress: [█████░░░░░] 50%
+Progress: [█████░░░░░] 52%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 22
+- Total plans completed: 23
 - Average duration: 3.5 minutes
-- Total execution time: 1.3 hours
+- Total execution time: 1.4 hours
 
 **By Phase:**
 
@@ -33,6 +33,7 @@ Progress: [█████░░░░░] 50%
 | 3 | 6 | 21 min | 3.5 min |
 | 4 | 4 | 13.5 min | 3.4 min |
 | 5 | 5 | 17.7 min | 3.5 min |
+| 6 | 1 | 2.6 min | 2.6 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -54,7 +55,8 @@ Progress: [█████░░░░░] 50%
 - 05-03: 3.5 minutes (Agent 3 Consolidation with conflict detection)
 - 05-04: 4.8 minutes (Manual review queue infrastructure)
 - 05-05: 2.3 minutes (Multi-agent pipeline integration)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~2.5 min
+- 06-02: 2.6 minutes (Signal scorers and explainability with RapidFuzz 3.x)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~2.5 min, signal scoring ~2.5 min
 
 *Updated after each plan completion*
 
@@ -256,6 +258,15 @@ Recent decisions affecting current work:
 - extracted_data includes pipeline_metadata with intent, conflicts, validation_status
 - Complete multi-agent pipeline with checkpoints saved at each stage
 
+**New from 06-02:**
+- Signal scorers use RapidFuzz 3.x with explicit processor=utils.default_process parameter
+- score_client_name tries multiple algorithms (token_sort, partial, token_set) and returns best score
+- score_reference_numbers handles OCR errors with fuzzy matching (partial_ratio, token_sort_ratio)
+- Reference matching uses score_cutoff=80 for OCR error tolerance (handles 1->I, 0->O substitutions)
+- ExplainabilityBuilder v2.0 produces JSONB-ready match explanations
+- Signal scorers return (score, details) tuple for explainability
+- Explainability includes signal scores, weighted scores, algorithm used, gap detection, filters applied
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -273,13 +284,9 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 5 Complete:** All 5 plans complete.
-- Agent 1 (Intent Classification): Rule-based fast path with Claude Haiku fallback
-- Agent 2 (Content Extraction): Checkpoint-aware with intent-based routing
-- Agent 3 (Consolidation): Conflict detection with needs_review flagging
-- Manual Review Queue: Claim concurrency with priority-based ordering
-- Pipeline Integration: Full 3-agent orchestration with automatic review queue enrollment
-- Next: Phase 6 (Matching Engine Reactivation)
+**Phase 6 In Progress:** 1 of 5 plans complete.
+- 06-02 Complete: Signal scorers (name, reference) with RapidFuzz 3.x and ExplainabilityBuilder
+- Next: 06-03 (Candidate Retrieval), 06-04 (Match Orchestrator), 06-05 (Integration)
 
 **Production Deployment Required:** Phases 1, 2, 3, and 4 code complete but not deployed. Need to:
 1. Deploy to production environment with Procfile
@@ -296,9 +303,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-05
-Stopped at: Phase 5 verified complete
+Stopped at: Completed 06-02-PLAN.md (Signal Scorers and Explainability)
 Resume file: None
 
 ---
 
-**Next action:** Begin Phase 6 planning with `/gsd:discuss-phase 6` or `/gsd:plan-phase 6`.
+**Next action:** Continue Phase 6 with 06-03 (Candidate Retrieval) or subsequent plans.
