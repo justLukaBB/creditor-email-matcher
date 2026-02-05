@@ -6,5 +6,6 @@ explainability builders for debugging match results.
 """
 
 from app.services.matching.signals import score_client_name, score_reference_numbers
+from app.services.matching.explainability import ExplainabilityBuilder
 
-__all__ = ["score_client_name", "score_reference_numbers"]
+__all__ = ["score_client_name", "score_reference_numbers", "ExplainabilityBuilder"]
