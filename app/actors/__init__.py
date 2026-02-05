@@ -66,3 +66,4 @@ from app.actors import intent_classifier  # noqa: F401
 from app.actors.email_processor import process_email  # noqa: F401
 from app.actors.content_extractor import extract_content  # noqa: F401
 from app.actors.intent_classifier import classify_intent  # noqa: F401
+from app.actors.consolidation_agent import consolidate_results  # noqa: F401
