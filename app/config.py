@@ -36,6 +36,10 @@ class Settings(BaseSettings):
     worker_processes: int = 2
     worker_threads: int = 1
 
+    # GCS Storage (Phase 3)
+    gcs_bucket_name: Optional[str] = None
+    gcs_max_file_size_mb: int = 32  # Claude API 32MB limit
+
     class Config:
         env_file = ".env"
         case_sensitive = False
