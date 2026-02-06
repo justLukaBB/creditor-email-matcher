@@ -11,18 +11,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 8 of 10 (Database-Backed Prompt Management)
-Plan: 2 of 4 complete
+Plan: 3 of 4 complete
 Status: In progress
-Last activity: 2026-02-06 — Completed 08-02-PLAN.md (Prompt management services)
+Last activity: 2026-02-06 — Completed 08-03-PLAN.md (Prompt integration into extractors)
 
-Progress: [████████░░] 80%
+Progress: [████████░░] 82.5%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 32
-- Average duration: 3.16 minutes
-- Total execution time: 1.94 hours
+- Total plans completed: 33
+- Average duration: 3.21 minutes
+- Total execution time: 2.04 hours
 
 **By Phase:**
 
@@ -35,7 +35,7 @@ Progress: [████████░░] 80%
 | 5 | 5 | 17.7 min | 3.5 min |
 | 6 | 5 | 14.5 min | 2.9 min |
 | 7 | 4 | 13.25 min | 3.31 min |
-| 8 | 2 | 6 min | 3.0 min |
+| 8 | 3 | 12 min | 4.0 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -67,7 +67,8 @@ Progress: [████████░░] 80%
 - 07-04: 3.48 minutes (Pipeline routing integration)
 - 08-01: 3.0 minutes (Database models for prompt management)
 - 08-02: 3.0 minutes (Prompt management services with Jinja2 rendering)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min, service layer ~3 min
+- 08-03: 6.0 minutes (Prompt integration into extractors)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min, service layer ~3 min
 
 *Updated after each plan completion*
 
@@ -365,6 +366,17 @@ Recent decisions affecting current work:
 - API cost calculation with Decimal precision (6 decimal places) for accurate financial tracking
 - get_version_stats() aggregates metrics over recent days (7-day default window)
 
+**New from 08-03:**
+- All 4 extraction services load prompts from database with Jinja2 rendering
+- Intent classifier accepts optional email_id parameter for metrics tracking
+- Entity extractor accepts optional db session and email_id for prompt loading and metrics
+- PDF and image extractors accept optional db session and email_id in __init__
+- Hardcoded prompts preserved as fallback when no active database version exists
+- Metrics recording after each API call links extraction to prompt_template_id
+- Database session management: closed in finally blocks to prevent connection leaks
+- Vision prompts (PDF, image) don't use variable interpolation (documents are visual)
+- Backward compatibility: all new parameters optional, zero breaking changes
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -416,9 +428,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-06
-Stopped at: Completed 08-02-PLAN.md
+Stopped at: Completed 08-03-PLAN.md
 Resume file: None
 
 ---
 
-**Next action:** Continue Phase 8 with plan 08-03 (Migration and seeding).
+**Next action:** Continue Phase 8 with plan 08-04 (Seeding and testing).
