@@ -5,7 +5,7 @@ FastAPI Entry Point with APScheduler for Reconciliation
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-import structlog
+import logging
 
 from app.config import settings
 from app.database import init_db
@@ -13,16 +13,12 @@ from app.scheduler import start_scheduler, stop_scheduler
 from app.routers.webhook import router as webhook_router
 from app.routers.jobs import router as jobs_router
 from app.routers.manual_review import router as manual_review_router
+from app.middleware.correlation_id import CorrelationIdMiddleware
+from app.services.monitoring.logging import setup_logging
 
-# Structured Logging Setup
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer()
-    ]
-)
-logger = structlog.get_logger()
+# Setup JSON logging with correlation ID
+setup_logging()
+logger = logging.getLogger(__name__)
 
 # FastAPI App
 app = FastAPI(
@@ -32,6 +28,9 @@ app = FastAPI(
     docs_url="/docs" if settings.environment == "development" else None,
     redoc_url="/redoc" if settings.environment == "development" else None,
 )
+
+# Add Correlation ID Middleware (BEFORE routers for context availability)
+app.add_middleware(CorrelationIdMiddleware)
 
 # APScheduler instance (module level)
 scheduler = None
@@ -47,7 +46,7 @@ async def startup_event():
     """Application Startup"""
     global scheduler
 
-    logger.info("startup", environment=settings.environment)
+    logger.info("startup", extra={"environment": settings.environment})
 
     # Initialize database connection
     init_db()
@@ -128,7 +127,7 @@ async def trigger_reconciliation():
         }
 
     except Exception as e:
-        logger.error("manual_reconciliation_error", error=str(e), exc_info=True)
+        logger.error("manual_reconciliation_error", extra={"error": str(e)}, exc_info=True)
         return {
             "status": "error",
             "message": str(e)
