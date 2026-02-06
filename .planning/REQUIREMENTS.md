@@ -159,11 +159,11 @@
 | REQ-CONFIDENCE-02 | Phase 7 | Complete |
 | REQ-CONFIDENCE-03 | Phase 7 | Complete |
 | REQ-CONFIDENCE-04 | Phase 7 | Complete |
-| REQ-PROMPT-01 | Phase 8 | Pending |
-| REQ-PROMPT-02 | Phase 8 | Pending |
-| REQ-PROMPT-03 | Phase 8 | Pending |
-| REQ-PROMPT-04 | Phase 8 | Pending |
-| REQ-PROMPT-05 | Phase 8 | Pending |
+| REQ-PROMPT-01 | Phase 8 | Complete |
+| REQ-PROMPT-02 | Phase 8 | Complete |
+| REQ-PROMPT-03 | Phase 8 | Complete |
+| REQ-PROMPT-04 | Phase 8 | Complete |
+| REQ-PROMPT-05 | Phase 8 | Deferred (per user decision) |
 | REQ-OPS-01 | Phase 9 | Pending |
 | REQ-OPS-02 | Phase 9 | Pending |
 | REQ-OPS-03 | Phase 9 | Pending |
@@ -198,4 +198,4 @@
 ---
 
 *Generated from research synthesis on 2026-02-04*
-*Traceability updated: 2026-02-05 — Phase 7 requirements marked Complete (REQ-CONFIDENCE-01 through REQ-CONFIDENCE-04)*
+*Traceability updated: 2026-02-06 — Phase 8 requirements marked Complete (REQ-PROMPT-01 through REQ-PROMPT-04), REQ-PROMPT-05 deferred*
