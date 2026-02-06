@@ -5,12 +5,11 @@ FastAPI Entry Point with APScheduler for Reconciliation
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
-from apscheduler.schedulers.background import BackgroundScheduler
-from apscheduler.triggers.interval import IntervalTrigger
 import structlog
 
 from app.config import settings
 from app.database import init_db
+from app.scheduler import start_scheduler, stop_scheduler
 from app.routers.webhook import router as webhook_router
 from app.routers.jobs import router as jobs_router
 from app.routers.manual_review import router as manual_review_router
@@ -35,7 +34,7 @@ app = FastAPI(
 )
 
 # APScheduler instance (module level)
-scheduler = BackgroundScheduler(timezone="Europe/Berlin")
+scheduler = None
 
 # Register routers
 app.include_router(webhook_router)
@@ -43,53 +42,19 @@ app.include_router(jobs_router)
 app.include_router(manual_review_router)
 
 
-def run_scheduled_reconciliation():
-    """
-    Wrapper function for scheduled reconciliation job.
-
-    Called by APScheduler every hour to compare PostgreSQL with MongoDB
-    and repair any inconsistencies.
-    """
-    try:
-        from app.database import SessionLocal
-        from app.services.reconciliation import ReconciliationService
-        from app.services.mongodb_client import mongodb_service
-
-        if SessionLocal is None:
-            logger.warning("reconciliation_skipped", reason="database_not_configured")
-            return
-
-        reconciliation_svc = ReconciliationService(
-            session_factory=SessionLocal,
-            mongodb_service=mongodb_service
-        )
-        result = reconciliation_svc.run_reconciliation()
-        logger.info("reconciliation_completed", **result)
-
-    except Exception as e:
-        logger.error("reconciliation_crashed", error=str(e), exc_info=True)
-
-
 @app.on_event("startup")
 async def startup_event():
     """Application Startup"""
+    global scheduler
+
     logger.info("startup", environment=settings.environment)
 
     # Initialize database connection
     init_db()
     logger.info("database_initialized")
 
-    # Start reconciliation scheduler (skip in testing)
-    if settings.environment != "testing":
-        scheduler.add_job(
-            run_scheduled_reconciliation,
-            trigger=IntervalTrigger(hours=1),
-            id="hourly_reconciliation",
-            name="Hourly PostgreSQL-MongoDB Reconciliation",
-            replace_existing=True
-        )
-        scheduler.start()
-        logger.info("scheduler_started", interval="hourly", job="reconciliation")
+    # Start scheduler with all jobs (reconciliation + prompt rollup)
+    scheduler = start_scheduler(environment=settings.environment)
 
 
 @app.on_event("shutdown")
@@ -97,10 +62,8 @@ async def shutdown_event():
     """Application Shutdown"""
     logger.info("shutdown")
 
-    # Stop reconciliation scheduler
-    if scheduler.running:
-        scheduler.shutdown(wait=False)
-        logger.info("scheduler_stopped")
+    # Stop scheduler
+    stop_scheduler(scheduler)
 
 
 @app.get("/")
@@ -154,25 +117,14 @@ async def trigger_reconciliation():
         dict: Reconciliation run results with counts and status
     """
     try:
-        from app.database import SessionLocal
-        from app.services.reconciliation import ReconciliationService
-        from app.services.mongodb_client import mongodb_service
+        from app.scheduler import run_scheduled_reconciliation
 
-        if SessionLocal is None:
-            return {
-                "status": "error",
-                "message": "Database not configured"
-            }
-
-        reconciliation_svc = ReconciliationService(
-            session_factory=SessionLocal,
-            mongodb_service=mongodb_service
-        )
-        result = reconciliation_svc.run_reconciliation()
+        # Run reconciliation synchronously
+        run_scheduled_reconciliation()
 
         return {
             "status": "completed",
-            "result": result
+            "message": "Reconciliation job executed. Check logs for results."
         }
 
     except Exception as e:
