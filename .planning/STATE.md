@@ -11,18 +11,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 8 of 10 (Database-Backed Prompt Management)
-Plan: 1 of 4 complete
+Plan: 2 of 4 complete
 Status: In progress
-Last activity: 2026-02-06 — Completed 08-01-PLAN.md (Database models for prompt management)
+Last activity: 2026-02-06 — Completed 08-02-PLAN.md (Prompt management services)
 
-Progress: [████████░░] 77.5%
+Progress: [████████░░] 80%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 31
-- Average duration: 3.17 minutes
-- Total execution time: 1.89 hours
+- Total plans completed: 32
+- Average duration: 3.16 minutes
+- Total execution time: 1.94 hours
 
 **By Phase:**
 
@@ -35,7 +35,7 @@ Progress: [████████░░] 77.5%
 | 5 | 5 | 17.7 min | 3.5 min |
 | 6 | 5 | 14.5 min | 2.9 min |
 | 7 | 4 | 13.25 min | 3.31 min |
-| 8 | 1 | 3 min | 3.0 min |
+| 8 | 2 | 6 min | 3.0 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -66,7 +66,8 @@ Progress: [████████░░] 77.5%
 - 07-03: 2.92 minutes (Calibration data collection from manual review resolutions)
 - 07-04: 3.48 minutes (Pipeline routing integration)
 - 08-01: 3.0 minutes (Database models for prompt management)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min
+- 08-02: 3.0 minutes (Prompt management services with Jinja2 rendering)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min, service layer ~3 min
 
 *Updated after each plan completion*
 
@@ -354,6 +355,16 @@ Recent decisions affecting current work:
 - Task-type organization (classification, extraction, validation) over agent-based organization
 - Explicit activation required via is_active flag (default: False, no auto-promotion of latest version)
 
+**New from 08-02:**
+- PromptRenderer service with Jinja2 template rendering (autoescape=False for LLM prompts)
+- Template syntax validation via validate_template() to prevent runtime errors
+- PromptVersionManager with explicit activation/rollback to ANY historical version
+- get_active_prompt() convenience function for fast active prompt lookups using partial index
+- PromptMetricsService records extraction-level metrics with Claude API cost calculation
+- Claude pricing: Sonnet ($3/$15 per 1M tokens), Haiku ($0.25/$1.25 per 1M tokens)
+- API cost calculation with Decimal precision (6 decimal places) for accurate financial tracking
+- get_version_stats() aggregates metrics over recent days (7-day default window)
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -405,9 +416,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-06
-Stopped at: Completed 08-01-PLAN.md
+Stopped at: Completed 08-02-PLAN.md
 Resume file: None
 
 ---
 
-**Next action:** Continue Phase 8 with plan 08-02 (Prompt Retrieval Service).
+**Next action:** Continue Phase 8 with plan 08-03 (Migration and seeding).
