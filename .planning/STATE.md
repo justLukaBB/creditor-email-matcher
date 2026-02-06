@@ -6,23 +6,23 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** Gläubiger-Antworten werden zuverlässig dem richtigen Mandanten und Gläubiger zugeordnet und die Forderungsdaten korrekt in die Datenbank geschrieben — ohne manuellen Aufwand.
 
-**Current focus:** Phase 7 - Confidence Scoring & Calibration (VERIFIED COMPLETE)
+**Current focus:** Phase 8 - Database-Backed Prompt Management (IN PROGRESS)
 
 ## Current Position
 
-Phase: 7 of 10 (Confidence Scoring & Calibration)
-Plan: 4 of 4 complete
-Status: Phase verified ✓
-Last activity: 2026-02-05 — Phase 7 verified (5/5 must-haves, 4/4 requirements satisfied)
+Phase: 8 of 10 (Database-Backed Prompt Management)
+Plan: 1 of 4 complete
+Status: In progress
+Last activity: 2026-02-06 — Completed 08-01-PLAN.md (Database models for prompt management)
 
-Progress: [███████░░░] 70.0%
+Progress: [████████░░] 77.5%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 30
-- Average duration: 3.18 minutes
-- Total execution time: 1.84 hours
+- Total plans completed: 31
+- Average duration: 3.17 minutes
+- Total execution time: 1.89 hours
 
 **By Phase:**
 
@@ -35,6 +35,7 @@ Progress: [███████░░░] 70.0%
 | 5 | 5 | 17.7 min | 3.5 min |
 | 6 | 5 | 14.5 min | 2.9 min |
 | 7 | 4 | 13.25 min | 3.31 min |
+| 8 | 1 | 3 min | 3.0 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -64,6 +65,7 @@ Progress: [███████░░░] 70.0%
 - 07-02: 3.0 minutes (Overall confidence calculator and three-tier routing)
 - 07-03: 2.92 minutes (Calibration data collection from manual review resolutions)
 - 07-04: 3.48 minutes (Pipeline routing integration)
+- 08-01: 3.0 minutes (Database models for prompt management)
 - Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~4.5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min
 
 *Updated after each plan completion*
@@ -343,6 +345,15 @@ Recent decisions affecting current work:
 - LOW confidence can override auto_matched status and route to manual review
 - expiration_days parameter added to enqueue_for_review for low-confidence routing
 
+**New from 08-01:**
+- PromptTemplate model with immutable versioning (version > 0 constraint)
+- Model configuration stored with prompt version (model_name, temperature, max_tokens)
+- Partial index on (task_type, name) WHERE is_active = TRUE for fast active prompt lookups
+- Dual-table performance tracking: PromptPerformanceMetrics (raw 30-day) + PromptPerformanceDaily (permanent rollups)
+- Track both cost metrics (tokens, API cost) and quality metrics (success, confidence, manual review rate)
+- Task-type organization (classification, extraction, validation) over agent-based organization
+- Explicit activation required via is_active flag (default: False, no auto-promotion of latest version)
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -393,10 +404,10 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-05
-Stopped at: Phase 7 verified complete
+Last session: 2026-02-06
+Stopped at: Completed 08-01-PLAN.md
 Resume file: None
 
 ---
 
-**Next action:** Begin Phase 8 planning with `/gsd:discuss-phase 8` or `/gsd:plan-phase 8`.
+**Next action:** Continue Phase 8 with plan 08-02 (Prompt Retrieval Service).
