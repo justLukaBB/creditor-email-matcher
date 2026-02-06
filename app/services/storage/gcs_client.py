@@ -16,6 +16,7 @@ import structlog
 from google.cloud import storage
 
 from app.config import settings
+from app.services.monitoring.circuit_breakers import get_gcs_breaker, CircuitBreakerError
 
 
 logger = structlog.get_logger(__name__)
@@ -223,7 +224,14 @@ class GCSAttachmentHandler:
 
         bucket = self.client.bucket(bucket_name)
         blob = bucket.blob(blob_path)
-        blob.download_to_filename(dest_path)
+
+        # Wrap GCS download with circuit breaker
+        breaker = get_gcs_breaker()
+        try:
+            breaker.call(blob.download_to_filename, dest_path)
+        except CircuitBreakerError:
+            logger.error("gcs_circuit_open", gcs_url=gcs_url)
+            raise  # Let caller handle retry
 
     def _download_from_https(self, url: str, dest_path: str) -> None:
         """Download file from HTTPS URL to local path using streaming."""

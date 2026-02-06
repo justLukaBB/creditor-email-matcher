@@ -12,6 +12,7 @@ from app.config import settings
 from app.services.prompt_manager import get_active_prompt
 from app.services.prompt_renderer import PromptRenderer
 from app.services.prompt_metrics_service import record_extraction_metrics
+from app.services.monitoring.circuit_breakers import get_claude_breaker, CircuitBreakerError
 import logging
 
 if TYPE_CHECKING:
@@ -132,19 +133,25 @@ class EntityExtractorClaude:
             max_tokens = prompt_template.max_tokens if prompt_template else 1024
             temperature = prompt_template.temperature if prompt_template and prompt_template.temperature is not None else 0.1
 
-            # Call Claude API
-            message = self.client.messages.create(
-                model=model_name,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                system=system_prompt,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": user_template
-                    }
-                ]
-            )
+            # Wrap Claude API call with circuit breaker
+            breaker = get_claude_breaker()
+            try:
+                message = breaker.call(
+                    self.client.messages.create,
+                    model=model_name,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system=system_prompt,
+                    messages=[
+                        {
+                            "role": "user",
+                            "content": user_template
+                        }
+                    ]
+                )
+            except CircuitBreakerError:
+                logger.error("claude_circuit_open", email_id=email_id)
+                raise  # Let actor handle retry
 
             execution_time_ms = int((time.time() - start_time) * 1000)
 

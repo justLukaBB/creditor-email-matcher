@@ -6,6 +6,7 @@ Updates creditor data in MongoDB when responses are received
 from typing import Optional, Dict, Any
 from datetime import datetime
 import structlog
+from app.services.monitoring.circuit_breakers import get_mongodb_breaker, CircuitBreakerError
 
 logger = structlog.get_logger()
 
@@ -206,11 +207,17 @@ class MongoDBService:
             if reference_numbers:
                 update_data[f'final_creditor_list.{matched_creditor_index}.response_reference_numbers'] = reference_numbers
 
-            # Step 4: Update MongoDB
-            result = clients_collection.update_one(
-                {'_id': client['_id']},
-                {'$set': update_data}
-            )
+            # Step 4: Update MongoDB with circuit breaker
+            breaker = get_mongodb_breaker()
+            try:
+                result = breaker.call(
+                    clients_collection.update_one,
+                    {'_id': client['_id']},
+                    {'$set': update_data}
+                )
+            except CircuitBreakerError:
+                logger.error("mongodb_circuit_open", client_name=client_name)
+                raise  # Let caller handle retry
 
             if result.modified_count > 0:
                 logger.info("mongodb_updated",
@@ -243,12 +250,20 @@ class MongoDBService:
             clients_collection = self.db['clients']
 
             # Search in both top-level zendesk_ticket_id and in final_creditor_list
-            client = clients_collection.find_one({
-                '$or': [
-                    {'zendesk_ticket_id': zendesk_ticket_id},
-                    {'final_creditor_list.main_zendesk_ticket_id': zendesk_ticket_id}
-                ]
-            })
+            breaker = get_mongodb_breaker()
+            try:
+                client = breaker.call(
+                    clients_collection.find_one,
+                    {
+                        '$or': [
+                            {'zendesk_ticket_id': zendesk_ticket_id},
+                            {'final_creditor_list.main_zendesk_ticket_id': zendesk_ticket_id}
+                        ]
+                    }
+                )
+            except CircuitBreakerError:
+                logger.error("mongodb_circuit_open", operation="get_client_by_ticket")
+                raise
 
             return client
 
@@ -271,7 +286,15 @@ class MongoDBService:
 
         try:
             clients_collection = self.db['clients']
-            client = clients_collection.find_one({'aktenzeichen': aktenzeichen})
+            breaker = get_mongodb_breaker()
+            try:
+                client = breaker.call(
+                    clients_collection.find_one,
+                    {'aktenzeichen': aktenzeichen}
+                )
+            except CircuitBreakerError:
+                logger.error("mongodb_circuit_open", operation="get_client_by_aktenzeichen")
+                raise
             return client
 
         except Exception as e:
@@ -295,11 +318,19 @@ class MongoDBService:
         try:
             clients_collection = self.db['clients']
 
-            # Case-insensitive search
-            client = clients_collection.find_one({
-                'firstName': {'$regex': f'^{first_name}$', '$options': 'i'},
-                'lastName': {'$regex': f'^{last_name}$', '$options': 'i'}
-            })
+            # Case-insensitive search with circuit breaker
+            breaker = get_mongodb_breaker()
+            try:
+                client = breaker.call(
+                    clients_collection.find_one,
+                    {
+                        'firstName': {'$regex': f'^{first_name}$', '$options': 'i'},
+                        'lastName': {'$regex': f'^{last_name}$', '$options': 'i'}
+                    }
+                )
+            except CircuitBreakerError:
+                logger.error("mongodb_circuit_open", operation="get_client_by_name")
+                raise
 
             return client
 
