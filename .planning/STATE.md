@@ -11,18 +11,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 9 of 10 (Production Hardening & Monitoring)
-Plan: 4 of 4 complete
+Plan: 5 of 5 complete
 Status: Phase complete
-Last activity: 2026-02-06 — Completed 09-04-PLAN.md
+Last activity: 2026-02-06 — Completed 09-05-PLAN.md
 
-Progress: [█████████░] 90.5%
+Progress: [█████████░] 92.9%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 38
-- Average duration: 3.5 minutes
-- Total execution time: 2.6 hours
+- Total plans completed: 39
+- Average duration: 4.0 minutes
+- Total execution time: 3.1 hours
 
 **By Phase:**
 
@@ -36,7 +36,7 @@ Progress: [█████████░] 90.5%
 | 6 | 5 | 14.5 min | 2.9 min |
 | 7 | 4 | 13.25 min | 3.31 min |
 | 8 | 4 | 16 min | 4.0 min |
-| 9 | 4 | 21.8 min | 5.5 min |
+| 9 | 5 | 50.8 min | 10.2 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -74,7 +74,8 @@ Progress: [█████████░] 90.5%
 - 09-02: 4.4 minutes (Circuit breakers with email alerts)
 - 09-03: 5.0 minutes (Operational metrics collection with rollup)
 - 09-04: 3.4 minutes (Sentry error tracking and processing reports)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min, service layer ~3 min, seeding/automation ~4 min, monitoring infrastructure ~5.5 min
+- 09-05: 29.0 minutes (Full monitoring integration into pipeline)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min, service layer ~3 min, seeding/automation ~4 min, monitoring infrastructure ~5.5 min, full integration work ~15 min
 
 *Updated after each plan completion*
 
@@ -426,6 +427,20 @@ Recent decisions affecting current work:
 - init_sentry() gracefully disabled when SENTRY_DSN not configured (development-friendly)
 - 10% traces and profiles sample rate for production performance balance
 - set_processing_context() enriches errors with email_id, actor, correlation_id
+
+**New from 09-05:**
+- Full monitoring integration in email processing pipeline with correlation ID, circuit breakers, metrics, Sentry
+- Correlation ID propagation pattern: HTTP context -> actor parameter -> restore context at actor start
+- Circuit breakers wrap all external services: Claude API (entity_extractor_claude), MongoDB (mongodb_service), GCS (gcs_client)
+- Circuit breaker pattern: breaker.call(service_method, args), log and re-raise CircuitBreakerError for actor retry
+- Metrics recorded at key stages: token_usage (after extraction), confidence (after calculation), processing_time (in finally block), errors (in exception handler)
+- Sentry breadcrumbs at pipeline stages: intent classification, extraction, consolidation, matching, notification
+- Processing report created before final commit for transactional consistency (REQ-OPS-06)
+- Best-effort monitoring: metrics and report failures don't break email processing (wrapped in try/except)
+- Auto-match notifications preserved in UPDATE_AND_NOTIFY route with breadcrumb (REQ-OPS-05)
+- Correlation ID restoration in actor: Dramatiq runs in separate threads/processes, must explicitly restore context
+- Missing config fields bug fix: added anthropic_api_key and anthropic_model to Settings (AttributeError on import)
+- Processing time recorded in finally block to capture duration even on failure
 - ProcessingReport model stores per-email extraction audit trail (REQ-OPS-06)
 - extracted_fields tracks per-field value, confidence, and source
 - missing_fields list provides visibility into extraction gaps
@@ -466,11 +481,14 @@ Recent decisions affecting current work:
 
 ### Blockers/Concerns
 
-**Phase 9 In Progress:** 3 of 4 plans complete
+**Phase 9 Complete:** All 5 plans executed successfully
 - 09-01 Complete: Structured JSON logging with correlation ID
 - 09-02 Complete: Circuit breakers with email alerts
 - 09-03 Complete: Operational metrics collection with rollup
-- 09-04 Next: Integration testing with StubBroker
+- 09-04 Complete: Sentry error tracking and processing reports
+- 09-05 Complete: Full monitoring integration into email pipeline
+- All requirements satisfied: REQ-OPS-01 through REQ-OPS-06
+- Ready for Phase 10: Deployment
 
 **Phase 8 Complete:** All 4 plans executed successfully, verified
 - 08-01 Complete: Database models for prompt management
@@ -513,10 +531,10 @@ Recent decisions affecting current work:
 
 ## Session Continuity
 
-Last session: 2026-02-06
-Stopped at: Completed 09-03-PLAN.md
+Last session: 2026-02-06 22:10:40
+Stopped at: Completed 09-05-PLAN.md
 Resume file: None
 
 ---
 
-**Next action:** Continue Phase 9 with `/gsd:execute-plan 09-04` or plan next plan with `/gsd:plan 09-04`.
+**Next action:** Phase 9 complete. Plan Phase 10 (Deployment) with `/gsd:plan 10-01` or research phase domain with `/gsd:research 10-deployment`.
