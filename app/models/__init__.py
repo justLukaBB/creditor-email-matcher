@@ -12,6 +12,8 @@ from app.models.matching_config import MatchingThreshold
 from app.models.creditor_inquiry import CreditorInquiry
 from app.models.match_result import MatchResult
 from app.models.calibration_sample import CalibrationSample
+from app.models.prompt_template import PromptTemplate
+from app.models.prompt_metrics import PromptPerformanceMetrics, PromptPerformanceDaily
 
 __all__ = [
     "IncomingEmail",
@@ -25,4 +27,7 @@ __all__ = [
     "CreditorInquiry",
     "MatchResult",
     "CalibrationSample",
+    "PromptTemplate",
+    "PromptPerformanceMetrics",
+    "PromptPerformanceDaily",
 ]
