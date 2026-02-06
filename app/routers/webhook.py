@@ -18,6 +18,7 @@ from typing import Optional
 import hashlib
 import hmac
 import structlog
+from asgi_correlation_id.context import correlation_id
 
 from app.database import get_db
 from app.config import settings
@@ -151,12 +152,15 @@ async def receive_webhook(
     db.commit()
 
     # Step 7: Enqueue Dramatiq job for async processing
+    # Capture current correlation_id and pass to actor for tracing
+    current_correlation_id = correlation_id.get()
     from app.actors.email_processor import process_email
-    process_email.send(email_id=incoming_email.id)
+    process_email.send(email_id=incoming_email.id, correlation_id=current_correlation_id)
 
     logger.info("email_queued_for_processing",
                email_id=incoming_email.id,
-               status="queued")
+               status="queued",
+               correlation_id=current_correlation_id)
 
     return WebhookResponse(
         status="accepted",

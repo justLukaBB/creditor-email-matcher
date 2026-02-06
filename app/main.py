@@ -15,6 +15,7 @@ from app.routers.jobs import router as jobs_router
 from app.routers.manual_review import router as manual_review_router
 from app.middleware.correlation_id import CorrelationIdMiddleware
 from app.services.monitoring.logging import setup_logging
+from app.services.monitoring.error_tracking import init_sentry
 
 # Setup JSON logging with correlation ID
 setup_logging()
@@ -47,6 +48,10 @@ async def startup_event():
     global scheduler
 
     logger.info("startup", extra={"environment": settings.environment})
+
+    # Initialize Sentry for error tracking
+    sentry_enabled = init_sentry()
+    logger.info("monitoring_initialized", extra={"sentry_enabled": sentry_enabled})
 
     # Initialize database connection
     init_db()
