@@ -4,12 +4,16 @@ Dramatiq actor for asynchronous email processing with retry logic and state mana
 """
 
 import gc
+import time
 import dramatiq
 import logging
 import psutil
 from datetime import datetime
 from typing import Optional
 from asgi_correlation_id.context import correlation_id as correlation_id_ctx
+from app.services.monitoring.metrics import MetricsCollector
+from app.services.monitoring.error_tracking import set_processing_context, add_breadcrumb
+from app.services.processing_reports import create_processing_report
 
 logger = logging.getLogger(__name__)
 
@@ -192,8 +196,24 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                extra={"email_id": email_id,
                       "memory_mb": round(memory_before_mb, 2)})
 
+    # Record start time for duration tracking
+    start_time = time.time()
+
     db = SessionLocal()
     try:
+        # Restore correlation ID context for this actor execution
+        if correlation_id:
+            correlation_id_ctx.set(correlation_id)
+
+        # Set Sentry context at actor start
+        set_processing_context(
+            email_id=email_id,
+            actor="process_email",
+            correlation_id=correlation_id or "none"
+        )
+
+        # Initialize metrics collector
+        metrics = MetricsCollector(db)
         # Step 1: Load and lock email row with FOR UPDATE SKIP LOCKED
         # This prevents duplicate processing by concurrent workers
         email = db.query(IncomingEmail).filter(
@@ -267,6 +287,13 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                           "confidence": intent_result.get("confidence"),
                           "skip_extraction": intent_result.get("skip_extraction")})
 
+        # Add breadcrumb for intent classification
+        add_breadcrumb(
+            "pipeline",
+            f"Intent: {intent_result.get('intent')}",
+            data={"intent": intent_result.get("intent"), "confidence": intent_result.get("confidence")}
+        )
+
         # Handle skip_extraction intents (auto_reply, spam)
         if intent_result.get("skip_extraction"):
             logger.info("skip_extraction_intent_detected",
@@ -316,6 +343,23 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                           "sources": extraction_result.get("sources_processed"),
                           "needs_review": extraction_result.get("needs_review")})
 
+        # Add breadcrumb for extraction
+        add_breadcrumb(
+            "pipeline",
+            f"Extracted amount: {extraction_result.get('gesamtforderung')}",
+            data={"sources": extraction_result.get("sources_processed", 0)}
+        )
+
+        # Record token usage from extraction
+        total_tokens = extraction_result.get("total_tokens_used", 0)
+        if total_tokens > 0:
+            metrics.record_token_usage(
+                model="claude-sonnet",
+                operation="extraction",
+                tokens=total_tokens,
+                email_id=email_id
+            )
+
         # Stage 3: Consolidation (Agent 3)
         logger.info("agent3_consolidation_started", extra={"email_id": email_id})
         email.processing_status = "consolidating"
@@ -330,6 +374,13 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                           "conflicts_detected": consolidation_result.get("conflicts_detected"),
                           "needs_review": consolidation_result.get("needs_review"),
                           "validation_status": consolidation_result.get("validation_status")})
+
+        # Add breadcrumb for consolidation
+        add_breadcrumb(
+            "pipeline",
+            f"Consolidation: {consolidation_result.get('validation_status')}",
+            data={"conflicts": consolidation_result.get("conflicts_detected", 0)}
+        )
 
         # Store pipeline results in extracted_data with pipeline_metadata
         email.extracted_data = {
@@ -492,6 +543,13 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                           "status": matching_result.status,
                           "candidates_count": len(matching_result.candidates)})
 
+        # Add breadcrumb for matching
+        add_breadcrumb(
+            "pipeline",
+            f"Match status: {matching_result.status}",
+            data={"score": matching_result.match.total_score if matching_result.match else 0}
+        )
+
         # ========================================
         # PHASE 7: Confidence Scoring & Routing
         # ========================================
@@ -531,6 +589,10 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                    "weakest_link": confidence_result.weakest_link,
                    "route": route.action.value}
         )
+
+        # Record confidence metric
+        confidence_bucket = "high" if confidence_result.overall >= 0.85 else "medium" if confidence_result.overall >= 0.6 else "low"
+        metrics.record_confidence(confidence_bucket, confidence_result.overall, email_id=email_id)
 
         # Handle matching outcomes
         if matching_result.status == "auto_matched":
@@ -616,7 +678,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                                extra={"email_id": email_id,
                                       "confidence": confidence_result.overall})
 
-                    # Send email notification for verification
+                    # Send email notification for verification (REQ-OPS-05)
                     email_notifier.send_debt_update_notification(
                         client_name=client_name,
                         creditor_name=creditor_name_or_email,
@@ -628,6 +690,9 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                         reference_numbers=reference_numbers,
                         confidence_score=matching_result.match.total_score
                     )
+
+                    # Add breadcrumb for notification
+                    add_breadcrumb("notification", "Auto-match notification sent")
 
                 elif route.action == RoutingAction.MANUAL_REVIEW:
                     # LOW confidence: route to manual review queue even if auto-matched
@@ -686,11 +751,33 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
         email.processing_status = "completed"
         email.completed_at = datetime.utcnow()
         email.processed_at = datetime.utcnow()
+
+        # Calculate processing duration
+        duration_ms = int((time.time() - start_time) * 1000)
+
+        # Create processing report (REQ-OPS-06)
+        try:
+            create_processing_report(
+                db=db,
+                email_id=email_id,
+                extracted_data=email.extracted_data,
+                agent_checkpoints=email.agent_checkpoints or {},
+                overall_confidence=confidence_result.overall if confidence_result else 0.5,
+                confidence_route=email.confidence_route or "unknown",
+                needs_review=bool(email.match_status == "needs_review"),
+                review_reason=consolidation_result.get("review_reason") if consolidation_result else None,
+                processing_time_ms=duration_ms
+            )
+        except Exception as report_error:
+            logger.warning("processing_report_failed", extra={"error": str(report_error), "email_id": email_id})
+            # Don't fail processing for report generation errors
+
         db.commit()
 
         logger.info("email_processing_completed",
                    extra={"email_id": email_id,
-                          "match_status": email.match_status})
+                          "match_status": email.match_status,
+                          "duration_ms": duration_ms})
 
     except Exception as e:
         # Load email fresh and mark as failed
@@ -699,6 +786,12 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                            "error": str(e),
                            "exception_type": type(e).__name__},
                     exc_info=True)
+
+        # Record error metric
+        try:
+            metrics.record_error("process_email", type(e).__name__, email_id=email_id)
+        except Exception:
+            pass  # Don't fail on metrics error
 
         try:
             email = db.query(IncomingEmail).filter(
@@ -719,6 +812,13 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
         raise
 
     finally:
+        # Record processing time metric
+        try:
+            duration_ms = int((time.time() - start_time) * 1000)
+            metrics.record_processing_time("process_email", "complete", duration_ms, email_id=email_id)
+        except Exception:
+            pass  # Don't fail on metrics error
+
         # Close database connection
         db.close()
 
