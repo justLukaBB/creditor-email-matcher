@@ -5,9 +5,13 @@ Classifies email intent using rule-based detection (cheap) with Claude Haiku fal
 
 import re
 import structlog
+import time
 from typing import Optional, Dict
 
 from app.models.intent_classification import IntentResult, EmailIntent
+from app.services.prompt_manager import get_active_prompt
+from app.services.prompt_renderer import PromptRenderer
+from app.services.prompt_metrics_service import record_extraction_metrics
 
 logger = structlog.get_logger(__name__)
 
@@ -107,7 +111,7 @@ def classify_intent_cheap(headers: Dict[str, str], subject: str, body: str) -> O
     return None
 
 
-def classify_intent_with_llm(body: str, subject: str) -> IntentResult:
+def classify_intent_with_llm(body: str, subject: str, email_id: int = None) -> IntentResult:
     """
     Classify email intent using Claude Haiku (cheapest LLM option).
 
@@ -117,6 +121,7 @@ def classify_intent_with_llm(body: str, subject: str) -> IntentResult:
     Args:
         body: Email body text
         subject: Email subject line
+        email_id: Optional email ID for metrics tracking
 
     Returns:
         IntentResult with LLM classification
@@ -143,8 +148,34 @@ def classify_intent_with_llm(body: str, subject: str) -> IntentResult:
     # Truncate body to 500 chars for token efficiency
     truncated_body = body[:500] if body else ""
 
+    # Try database-backed prompt first
+    prompt_template = None
+    db = None
+    try:
+        from app.database import SessionLocal
+        db = SessionLocal()
+        prompt_template = get_active_prompt(db, task_type='classification', name='email_intent')
+    except Exception as e:
+        logger.warning("database_prompt_load_failed", error=str(e))
+
     # Construct prompt for intent classification
-    prompt = f"""Klassifiziere die E-Mail-Intent in eine der folgenden Kategorien:
+    if prompt_template:
+        # Use database-backed prompt
+        renderer = PromptRenderer()
+        prompt = renderer.render(
+            prompt_template.user_prompt_template,
+            variables={'subject': subject, 'truncated_body': truncated_body},
+            template_name='classification.email_intent'
+        )
+        model_name = prompt_template.model_name or "claude-haiku-4-20250514"
+        temperature = prompt_template.temperature if prompt_template.temperature is not None else 0.0
+        max_tokens = prompt_template.max_tokens or 100
+    else:
+        # Fallback to hardcoded prompt (current behavior)
+        model_name = "claude-haiku-4-20250514"
+        temperature = 0.0
+        max_tokens = 100
+        prompt = f"""Klassifiziere die E-Mail-Intent in eine der folgenden Kategorien:
 
 1. debt_statement - Gläubigerantwort mit Forderungsbetrag oder Schuldenstatus
 2. payment_plan - Zahlungsplan-Vorschlag oder Bestätigung
@@ -160,12 +191,15 @@ Text: {truncated_body}
 Antworte nur mit JSON:
 {{"intent": "debt_statement|payment_plan|rejection|inquiry|auto_reply|spam", "confidence": 0.0-1.0}}"""
 
+    start_time = time.time()
+
     try:
         # Use Claude Haiku (cheapest model for classification)
         client = Anthropic()
         response = client.messages.create(
-            model="claude-haiku-4-20250514",
-            max_tokens=100,
+            model=model_name,
+            max_tokens=max_tokens,
+            temperature=temperature,
             messages=[{"role": "user", "content": prompt}]
         )
 
@@ -197,7 +231,30 @@ Antworte nur mit JSON:
         logger.info("intent_classified_llm",
                    intent=intent.value,
                    confidence=confidence,
-                   model="claude-haiku-4")
+                   model=model_name)
+
+        # Record metrics if prompt_template was used and email_id provided
+        if prompt_template and db and email_id:
+            try:
+                execution_time_ms = int((time.time() - start_time) * 1000)
+                record_extraction_metrics(
+                    db=db,
+                    prompt_template_id=prompt_template.id,
+                    email_id=email_id,
+                    input_tokens=response.usage.input_tokens,
+                    output_tokens=response.usage.output_tokens,
+                    model_name=model_name,
+                    extraction_success=True,
+                    confidence_score=confidence,
+                    manual_review_required=False,
+                    execution_time_ms=execution_time_ms
+                )
+                db.commit()
+            except Exception as metrics_error:
+                logger.warning("metrics_recording_failed", error=str(metrics_error))
+                # Don't fail classification if metrics recording fails
+                if db:
+                    db.rollback()
 
         return IntentResult(
             intent=intent,
@@ -215,6 +272,10 @@ Antworte nur mit JSON:
             method="claude_haiku_error_fallback",
             skip_extraction=False
         )
+    finally:
+        # Ensure db session is closed
+        if db:
+            db.close()
 
 
 def classify_email_intent(email_id: int, headers: Dict[str, str], subject: str, body: str) -> IntentResult:
@@ -257,7 +318,7 @@ def classify_email_intent(email_id: int, headers: Dict[str, str], subject: str, 
         return cheap_result
 
     # Ambiguous - use LLM
-    llm_result = classify_intent_with_llm(body, subject)
+    llm_result = classify_intent_with_llm(body, subject, email_id=email_id)
 
     logger.info("intent_classification_complete",
                email_id=email_id,
