@@ -6,23 +6,23 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** Gläubiger-Antworten werden zuverlässig dem richtigen Mandanten und Gläubiger zugeordnet und die Forderungsdaten korrekt in die Datenbank geschrieben — ohne manuellen Aufwand.
 
-**Current focus:** Phase 8 - Database-Backed Prompt Management (VERIFIED COMPLETE)
+**Current focus:** Phase 9 - Production Hardening & Monitoring (IN PROGRESS)
 
 ## Current Position
 
-Phase: 8 of 10 (Database-Backed Prompt Management)
-Plan: 4 of 4 complete
-Status: Phase verified ✓
-Last activity: 2026-02-06 — Phase 8 verified (5/5 must-haves, 4/4 requirements satisfied)
+Phase: 9 of 10 (Production Hardening & Monitoring)
+Plan: 1 of 4 complete
+Status: In progress
+Last activity: 2026-02-06 — Completed 09-01-PLAN.md
 
-Progress: [████████░░] 80.0%
+Progress: [████████░░] 82.5%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 34
-- Average duration: 3.24 minutes
-- Total execution time: 2.15 hours
+- Total plans completed: 35
+- Average duration: 3.4 minutes
+- Total execution time: 2.3 hours
 
 **By Phase:**
 
@@ -36,6 +36,7 @@ Progress: [████████░░] 80.0%
 | 6 | 5 | 14.5 min | 2.9 min |
 | 7 | 4 | 13.25 min | 3.31 min |
 | 8 | 4 | 16 min | 4.0 min |
+| 9 | 1 | 9 min | 9.0 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -69,7 +70,8 @@ Progress: [████████░░] 80.0%
 - 08-02: 3.0 minutes (Prompt management services with Jinja2 rendering)
 - 08-03: 6.0 minutes (Prompt integration into extractors)
 - 08-04: 4.0 minutes (Seeding and automated metrics rollup)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min, service layer ~3 min, seeding/automation ~4 min
+- 09-01: 9.0 minutes (Structured JSON logging with correlation ID)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min, service layer ~3 min, seeding/automation ~4 min, logging infrastructure ~9 min
 
 *Updated after each plan completion*
 
@@ -388,6 +390,17 @@ Recent decisions affecting current work:
 - Centralized scheduler module (app/scheduler.py) exports all background jobs
 - Combined rollup+cleanup job reduces scheduler complexity
 
+**New from 09-01:**
+- JSON structured logging with python-json-logger>=2.0.7
+- Correlation ID propagation with asgi-correlation-id>=4.0.0
+- CorrelationJsonFormatter auto-injects correlation_id, service, environment fields into all logs
+- CorrelationIdMiddleware added to FastAPI app BEFORE routers for context availability
+- process_email actor accepts optional correlation_id parameter for context restoration
+- Replaced structlog with standard logging + extra parameter pattern
+- INFO level for production logging (USER DECISION)
+- JSON output to stdout for container/cloud-native log aggregation
+- Correlation ID propagates from webhook through Dramatiq actor processing via manual parameter passing
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -409,9 +422,21 @@ Recent decisions affecting current work:
 - Verify active prompts: `SELECT task_type, name, version FROM prompt_templates WHERE is_active = TRUE;` (should return 4 rows)
 - Restart application to start scheduler with daily rollup job
 
+**Phase 9 Deployment Prerequisites:**
+- Install dependencies: `pip install -r requirements.txt` (adds python-json-logger>=2.0.7, asgi-correlation-id>=4.0.0)
+- Set ENVIRONMENT env var (optional, defaults to 'development')
+- Restart application - JSON logging activates automatically
+- Update webhook to pass correlation_id to actors (Phase 09-02)
+
 ### Blockers/Concerns
 
-**Phase 8 Complete:** All 4 plans executed successfully
+**Phase 9 In Progress:** 1 of 4 plans complete
+- 09-01 Complete: Structured JSON logging with correlation ID
+- 09-02 Next: Integrate correlation ID into webhook and all actors
+- 09-03 Planned: Circuit breakers for external dependencies
+- 09-04 Planned: Integration testing with StubBroker
+
+**Phase 8 Complete:** All 4 plans executed successfully, verified
 - 08-01 Complete: Database models for prompt management
 - 08-02 Complete: Prompt management services with Jinja2 rendering
 - 08-03 Complete: Prompt integration into extractors
@@ -453,9 +478,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-06
-Stopped at: Phase 8 verified complete
+Stopped at: Completed 09-01-PLAN.md
 Resume file: None
 
 ---
 
-**Next action:** Begin Phase 9 planning with `/gsd:discuss-phase 9` or `/gsd:plan-phase 9`.
+**Next action:** Continue Phase 9 with `/gsd:execute-plan 09-02` or plan next plan with `/gsd:plan 09-02`.
