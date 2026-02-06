@@ -11,18 +11,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 9 of 10 (Production Hardening & Monitoring)
-Plan: 3 of 4 complete
-Status: In progress
-Last activity: 2026-02-06 — Completed 09-03-PLAN.md
+Plan: 4 of 4 complete
+Status: Phase complete
+Last activity: 2026-02-06 — Completed 09-04-PLAN.md
 
-Progress: [████████░░] 87.5%
+Progress: [█████████░] 90.5%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 37
+- Total plans completed: 38
 - Average duration: 3.5 minutes
-- Total execution time: 2.5 hours
+- Total execution time: 2.6 hours
 
 **By Phase:**
 
@@ -36,7 +36,7 @@ Progress: [████████░░] 87.5%
 | 6 | 5 | 14.5 min | 2.9 min |
 | 7 | 4 | 13.25 min | 3.31 min |
 | 8 | 4 | 16 min | 4.0 min |
-| 9 | 3 | 18.4 min | 6.1 min |
+| 9 | 4 | 21.8 min | 5.5 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -73,7 +73,8 @@ Progress: [████████░░] 87.5%
 - 09-01: 9.0 minutes (Structured JSON logging with correlation ID)
 - 09-02: 4.4 minutes (Circuit breakers with email alerts)
 - 09-03: 5.0 minutes (Operational metrics collection with rollup)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min, service layer ~3 min, seeding/automation ~4 min, monitoring infrastructure ~6.1 min
+- 09-04: 3.4 minutes (Sentry error tracking and processing reports)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min, service layer ~3 min, seeding/automation ~4 min, monitoring infrastructure ~5.5 min
 
 *Updated after each plan completion*
 
@@ -412,6 +413,26 @@ Recent decisions affecting current work:
 - with_circuit_breaker decorator for easy function wrapping
 - Circuit breaker integration planned for 09-05 (apply to Claude API, MongoDB, GCS calls)
 
+**New from 09-03:**
+- OperationalMetrics captures per-job performance: processing_time_ms, tokens_used, cost_usd
+- OperationalMetricsDaily rollup aggregates to daily summaries: job_count, avg_time, total_cost
+- Metrics collected for: email_processing, content_extraction, intent_classification, matching
+- MetricsCollector singleton with get_metrics_collector() for dependency injection
+- Daily rollup scheduled at 01:00 with 30-day raw metric retention
+- Cost calculation uses Claude Sonnet pricing: $3/M input, $15/M output (6 decimal precision)
+
+**New from 09-04:**
+- Sentry error tracking with FastAPI integration for production debugging
+- init_sentry() gracefully disabled when SENTRY_DSN not configured (development-friendly)
+- 10% traces and profiles sample rate for production performance balance
+- set_processing_context() enriches errors with email_id, actor, correlation_id
+- ProcessingReport model stores per-email extraction audit trail (REQ-OPS-06)
+- extracted_fields tracks per-field value, confidence, and source
+- missing_fields list provides visibility into extraction gaps
+- create_processing_report() generates reports from agent_checkpoints JSONB
+- Upsert pattern for idempotent report creation (update existing or insert new)
+- Query functions: by email_id, date range, needs_review status
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -434,12 +455,14 @@ Recent decisions affecting current work:
 - Restart application to start scheduler with daily rollup job
 
 **Phase 9 Deployment Prerequisites:**
-- Install dependencies: `pip install -r requirements.txt` (adds python-json-logger>=2.0.7, asgi-correlation-id>=4.0.0, pybreaker>=1.4.1)
+- Install dependencies: `pip install -r requirements.txt` (adds python-json-logger>=2.0.7, asgi-correlation-id>=4.0.0, pybreaker>=1.4.1, sentry-sdk[fastapi]>=2.0.0)
 - Set ENVIRONMENT env var (optional, defaults to 'development')
-- Run migration: `alembic upgrade head` (creates operational_metrics and operational_metrics_daily tables)
+- Run migration: `alembic upgrade head` (creates operational_metrics, operational_metrics_daily, processing_reports tables)
 - Restart application - JSON logging, circuit breakers, and metrics rollup activate automatically
 - Optional: Set SMTP configuration for circuit breaker email alerts
+- Optional: Set SENTRY_DSN for error tracking (gracefully disabled if not set)
 - Verify scheduler jobs: Check logs for "job_registered", job="operational_metrics_rollup"
+- Verify Sentry: Check logs for "Sentry initialized" if DSN configured
 
 ### Blockers/Concerns
 
