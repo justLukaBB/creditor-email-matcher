@@ -4,11 +4,18 @@ Uses Claude 3.5 Sonnet to extract structured data from creditor emails
 """
 
 import json
-from typing import Dict, Optional, List
+import time
+from typing import Dict, Optional, List, TYPE_CHECKING
 from anthropic import Anthropic
 from pydantic import BaseModel, Field
 from app.config import settings
+from app.services.prompt_manager import get_active_prompt
+from app.services.prompt_renderer import PromptRenderer
+from app.services.prompt_metrics_service import record_extraction_metrics
 import logging
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +71,9 @@ class EntityExtractorClaude:
         self,
         email_body: str,
         from_email: str,
-        subject: Optional[str] = None
+        subject: Optional[str] = None,
+        email_id: int = None,
+        db: "Session" = None
     ) -> ExtractedEntities:
         """
         Extract structured entities from email content
@@ -73,6 +82,8 @@ class EntityExtractorClaude:
             email_body: Cleaned email body text
             from_email: Sender's email address
             subject: Email subject line
+            email_id: Optional email ID for metrics tracking
+            db: Optional database session for prompt loading and metrics
 
         Returns:
             ExtractedEntities object with extracted data
@@ -84,23 +95,58 @@ class EntityExtractorClaude:
                 confidence=0.0
             )
 
+        # Try to load prompts from database
+        system_prompt = None
+        user_template = None
+        prompt_template = None
+
+        if db:
+            try:
+                prompt_template = get_active_prompt(db, task_type='extraction', name='email_body')
+                if prompt_template:
+                    system_prompt = prompt_template.system_prompt
+                    renderer = PromptRenderer()
+                    user_template = renderer.render(
+                        prompt_template.user_prompt_template,
+                        variables={
+                            'from_email': from_email,
+                            'subject': subject or '',
+                            'email_body': email_body
+                        },
+                        template_name='extraction.email_body'
+                    )
+            except Exception as e:
+                logger.warning(f"Failed to load database prompt: {e}")
+
+        # Fallback to hardcoded methods if no database prompt
+        if not system_prompt:
+            system_prompt = self._get_system_prompt()
+        if not user_template:
+            user_template = self._build_extraction_prompt(email_body, from_email, subject)
+
+        start_time = time.time()
+
         try:
-            # Build the prompt
-            prompt = self._build_extraction_prompt(email_body, from_email, subject)
+            # Determine model parameters
+            model_name = prompt_template.model_name if prompt_template else settings.anthropic_model
+            max_tokens = prompt_template.max_tokens if prompt_template else 1024
+            temperature = prompt_template.temperature if prompt_template and prompt_template.temperature is not None else 0.1
 
             # Call Claude API
             message = self.client.messages.create(
-                model=settings.anthropic_model,
-                max_tokens=1024,
-                temperature=0.1,  # Low temperature for consistent extraction
-                system=self._get_system_prompt(),
+                model=model_name,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                system=system_prompt,
                 messages=[
                     {
                         "role": "user",
-                        "content": prompt
+                        "content": user_template
                     }
                 ]
             )
+
+            execution_time_ms = int((time.time() - start_time) * 1000)
 
             # Parse the response
             result_text = message.content[0].text
@@ -116,6 +162,28 @@ class EntityExtractorClaude:
                 f"confidence: {entities.confidence:.2f}, "
                 f"client: {entities.client_name}"
             )
+
+            # Record metrics if prompt_template was used
+            if prompt_template and db and email_id:
+                try:
+                    record_extraction_metrics(
+                        db=db,
+                        prompt_template_id=prompt_template.id,
+                        email_id=email_id,
+                        input_tokens=message.usage.input_tokens,
+                        output_tokens=message.usage.output_tokens,
+                        model_name=model_name,
+                        extraction_success=entities.is_creditor_reply,
+                        confidence_score=entities.confidence,
+                        manual_review_required=entities.confidence < 0.6,
+                        execution_time_ms=execution_time_ms
+                    )
+                    db.commit()
+                except Exception as metrics_error:
+                    logger.warning(f"Failed to record metrics: {metrics_error}")
+                    # Don't fail extraction if metrics recording fails
+                    if db:
+                        db.rollback()
 
             return entities
 
