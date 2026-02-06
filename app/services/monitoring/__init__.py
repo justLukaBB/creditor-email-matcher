@@ -1,6 +1,6 @@
 """
 Monitoring Module
-Exports for structured logging, circuit breakers, and observability
+Exports for structured logging, circuit breakers, metrics collection, and observability
 """
 
 from app.services.monitoring.logging import setup_logging, CorrelationJsonFormatter
@@ -12,6 +12,7 @@ from app.services.monitoring.circuit_breakers import (
     CircuitBreakerError,
     CircuitBreakerEmailListener,
 )
+from app.services.monitoring.metrics import MetricsCollector, get_metrics_collector
 
 __all__ = [
     "setup_logging",
@@ -22,4 +23,6 @@ __all__ = [
     "with_circuit_breaker",
     "CircuitBreakerError",
     "CircuitBreakerEmailListener",
+    "MetricsCollector",
+    "get_metrics_collector",
 ]

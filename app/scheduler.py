@@ -1,7 +1,7 @@
 """
 APScheduler Background Jobs
 
-Scheduled jobs for reconciliation and prompt metrics rollup.
+Scheduled jobs for reconciliation, prompt metrics rollup, and operational metrics rollup.
 Jobs run via BackgroundScheduler in FastAPI process.
 """
 
@@ -65,6 +65,31 @@ def run_prompt_rollup():
         logger.error("prompt_rollup_crashed", error=str(e), exc_info=True)
 
 
+def run_scheduled_operational_rollup():
+    """
+    Wrapper function for daily operational metrics rollup job.
+
+    Called by APScheduler daily at 01:30 to aggregate previous day's metrics
+    and cleanup old raw data (30+ days).
+    """
+    try:
+        from app.database import SessionLocal
+        from app.services.metrics_rollup import run_operational_metrics_rollup
+
+        if SessionLocal is None:
+            logger.warning("operational_rollup_skipped", reason="database_not_configured")
+            return
+
+        db = SessionLocal()
+        try:
+            run_operational_metrics_rollup(db)
+        finally:
+            db.close()
+
+    except Exception as e:
+        logger.error("operational_rollup_crashed", error=str(e), exc_info=True)
+
+
 def start_scheduler(environment: str = "production") -> BackgroundScheduler:
     """
     Start background scheduler with all jobs.
@@ -101,8 +126,18 @@ def start_scheduler(environment: str = "production") -> BackgroundScheduler:
     )
     logger.info("job_registered", job="prompt_metrics_rollup", schedule="daily_01:00")
 
+    # Job 3: Daily operational metrics rollup (at 01:30)
+    scheduler.add_job(
+        run_scheduled_operational_rollup,
+        trigger=CronTrigger(hour=1, minute=30),
+        id="operational_metrics_rollup",
+        name="Operational Metrics Daily Rollup",
+        replace_existing=True
+    )
+    logger.info("job_registered", job="operational_metrics_rollup", schedule="daily_01:30")
+
     scheduler.start()
-    logger.info("scheduler_started", jobs=["reconciliation", "prompt_metrics_rollup"])
+    logger.info("scheduler_started", jobs=["reconciliation", "prompt_metrics_rollup", "operational_metrics_rollup"])
 
     return scheduler
 
@@ -123,5 +158,6 @@ __all__ = [
     "start_scheduler",
     "stop_scheduler",
     "run_scheduled_reconciliation",
-    "run_prompt_rollup"
+    "run_prompt_rollup",
+    "run_scheduled_operational_rollup"
 ]
