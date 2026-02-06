@@ -16,9 +16,13 @@ import os
 import re
 import base64
 import json
-from typing import Optional
+import time
+from typing import Optional, TYPE_CHECKING
 
 import structlog
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 try:
     import fitz  # PyMuPDF
@@ -37,6 +41,9 @@ from app.models.extraction_result import (
 )
 from app.services.cost_control import TokenBudgetTracker
 from app.services.extraction.detector import is_scanned_pdf, is_encrypted_pdf
+from app.services.prompt_manager import get_active_prompt
+from app.services.prompt_renderer import PromptRenderer
+from app.services.prompt_metrics_service import record_extraction_metrics
 
 
 logger = structlog.get_logger(__name__)
@@ -102,6 +109,8 @@ class PDFExtractor:
         token_budget: TokenBudgetTracker,
         claude_client: Optional["Anthropic"] = None,
         max_pages: int = 10,
+        db: "Session" = None,
+        email_id: int = None
     ):
         """
         Initialize PDF extractor.
@@ -111,9 +120,13 @@ class PDFExtractor:
             claude_client: Optional Anthropic client (creates new one if not provided)
             max_pages: Maximum pages to process (default 10). Documents exceeding
                        this limit process first 5 + last 5 pages only.
+            db: Optional database session for prompt loading and metrics
+            email_id: Optional email ID for metrics tracking
         """
         self.token_budget = token_budget
         self.max_pages = max_pages
+        self.db = db
+        self.email_id = email_id
 
         # Initialize Claude client lazily (only for scanned PDFs)
         self._claude_client = claude_client
@@ -412,11 +425,27 @@ class PDFExtractor:
             with open(pdf_path, "rb") as f:
                 pdf_data = base64.standard_b64encode(f.read()).decode("utf-8")
 
+            # Try to load prompt from database
+            prompt_text = EXTRACTION_PROMPT  # Hardcoded fallback
+            prompt_template = None
+
+            if self.db:
+                try:
+                    prompt_template = get_active_prompt(self.db, task_type='extraction', name='pdf_scanned')
+                    if prompt_template:
+                        prompt_text = prompt_template.user_prompt_template
+                        # No variables to render for PDF prompt (document is visual)
+                except Exception as e:
+                    log.warning("database_prompt_load_failed", error=str(e))
+
             log.info(
                 "calling_claude_vision",
                 estimated_tokens=estimated_tokens,
                 pdf_size_bytes=len(pdf_data) * 3 // 4,  # Base64 is ~4/3 original size
+                using_db_prompt=prompt_template is not None
             )
+
+            start_time = time.time()
 
             # Call Claude Vision API
             message = self.claude_client.messages.create(
@@ -434,11 +463,13 @@ class PDFExtractor:
                                     "data": pdf_data,
                                 },
                             },
-                            {"type": "text", "text": EXTRACTION_PROMPT},
+                            {"type": "text", "text": prompt_text},
                         ],
                     }
                 ],
             )
+
+            execution_time_ms = int((time.time() - start_time) * 1000)
 
             # Record token usage
             tokens_used = message.usage.input_tokens + message.usage.output_tokens
@@ -454,11 +485,35 @@ class PDFExtractor:
             )
 
             # Parse response
-            return self._parse_claude_response(
+            result = self._parse_claude_response(
                 response_text=message.content[0].text,
                 source_name=source_name,
                 tokens_used=tokens_used,
             )
+
+            # Record metrics if prompt_template was used
+            if prompt_template and self.db and self.email_id:
+                try:
+                    record_extraction_metrics(
+                        db=self.db,
+                        prompt_template_id=prompt_template.id,
+                        email_id=self.email_id,
+                        input_tokens=message.usage.input_tokens,
+                        output_tokens=message.usage.output_tokens,
+                        model_name='claude-sonnet-4-5-20250514',
+                        extraction_success=result.gesamtforderung is not None,
+                        confidence_score=None,  # PDF extraction doesn't have confidence score
+                        manual_review_required=False,
+                        execution_time_ms=execution_time_ms
+                    )
+                    self.db.commit()
+                except Exception as metrics_error:
+                    log.warning("metrics_recording_failed", error=str(metrics_error))
+                    # Don't fail extraction if metrics recording fails
+                    if self.db:
+                        self.db.rollback()
+
+            return result
 
         except Exception as e:
             log.error("claude_vision_failed", error=str(e))

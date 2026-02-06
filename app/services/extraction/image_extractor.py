@@ -15,9 +15,13 @@ import os
 import re
 import json
 import base64
-from typing import Optional
+import time
+from typing import Optional, TYPE_CHECKING
 
 import structlog
+
+if TYPE_CHECKING:
+    from sqlalchemy.orm import Session
 
 try:
     from PIL import Image
@@ -35,6 +39,9 @@ from app.models.extraction_result import (
     ExtractedEntity,
 )
 from app.services.cost_control import TokenBudgetTracker
+from app.services.prompt_manager import get_active_prompt
+from app.services.prompt_renderer import PromptRenderer
+from app.services.prompt_metrics_service import record_extraction_metrics
 
 
 logger = structlog.get_logger(__name__)
@@ -92,6 +99,8 @@ class ImageExtractor:
         token_budget: TokenBudgetTracker,
         claude_client: Optional["Anthropic"] = None,
         max_image_size_kb: int = 5000,  # 5MB max before resize
+        db: "Session" = None,
+        email_id: int = None
     ):
         """
         Initialize image extractor.
@@ -100,9 +109,13 @@ class ImageExtractor:
             token_budget: Token budget tracker for Claude API calls
             claude_client: Optional Anthropic client (creates new one if not provided)
             max_image_size_kb: Maximum image size in KB before resizing (default 5MB)
+            db: Optional database session for prompt loading and metrics
+            email_id: Optional email ID for metrics tracking
         """
         self.token_budget = token_budget
         self.max_image_size_kb = max_image_size_kb
+        self.db = db
+        self.email_id = email_id
 
         # Initialize Claude client lazily
         self._claude_client = claude_client
@@ -212,11 +225,27 @@ class ImageExtractor:
             with open(working_path, "rb") as f:
                 image_data = base64.standard_b64encode(f.read()).decode("utf-8")
 
+            # Try to load prompt from database
+            prompt_text = IMAGE_EXTRACTION_PROMPT  # Hardcoded fallback
+            prompt_template = None
+
+            if self.db:
+                try:
+                    prompt_template = get_active_prompt(self.db, task_type='extraction', name='image')
+                    if prompt_template:
+                        prompt_text = prompt_template.user_prompt_template
+                        # No variables to render for image prompt (document is visual)
+                except Exception as e:
+                    log.warning("database_prompt_load_failed", error=str(e))
+
             log.info(
                 "calling_claude_vision",
                 estimated_tokens=estimated_tokens,
                 media_type=media_type,
+                using_db_prompt=prompt_template is not None
             )
+
+            start_time = time.time()
 
             # Call Claude Vision API
             message = self.claude_client.messages.create(
@@ -234,11 +263,13 @@ class ImageExtractor:
                                     "data": image_data,
                                 },
                             },
-                            {"type": "text", "text": IMAGE_EXTRACTION_PROMPT},
+                            {"type": "text", "text": prompt_text},
                         ],
                     }
                 ],
             )
+
+            execution_time_ms = int((time.time() - start_time) * 1000)
 
             # Record token usage
             tokens_used = message.usage.input_tokens + message.usage.output_tokens
@@ -255,7 +286,31 @@ class ImageExtractor:
             )
 
             # Parse response
-            return self._parse_response(message.content[0].text, result)
+            parsed_result = self._parse_response(message.content[0].text, result)
+
+            # Record metrics if prompt_template was used
+            if prompt_template and self.db and self.email_id:
+                try:
+                    record_extraction_metrics(
+                        db=self.db,
+                        prompt_template_id=prompt_template.id,
+                        email_id=self.email_id,
+                        input_tokens=message.usage.input_tokens,
+                        output_tokens=message.usage.output_tokens,
+                        model_name='claude-sonnet-4-5-20250514',
+                        extraction_success=parsed_result.gesamtforderung is not None,
+                        confidence_score=None,  # Image extraction doesn't have confidence score
+                        manual_review_required=False,
+                        execution_time_ms=execution_time_ms
+                    )
+                    self.db.commit()
+                except Exception as metrics_error:
+                    log.warning("metrics_recording_failed", error=str(metrics_error))
+                    # Don't fail extraction if metrics recording fails
+                    if self.db:
+                        self.db.rollback()
+
+            return parsed_result
 
         except Exception as e:
             log.error("image_extraction_failed", error=str(e))
