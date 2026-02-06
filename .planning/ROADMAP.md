@@ -231,7 +231,7 @@ Plans:
 ---
 
 ### Phase 9: Production Hardening & Monitoring
-**Goal**: Structured logging, metrics, circuit breakers, and integration tests provide operational visibility and resilience for production scale.
+**Goal**: Structured logging with correlation IDs, operational metrics, circuit breakers, Sentry error tracking, and processing reports provide operational visibility and resilience for 200+ daily emails at production scale.
 
 **Depends on**: Phase 8 (all core functionality complete before hardening)
 
@@ -244,12 +244,15 @@ Plans:
   4. Sentry error tracking includes context (email_id, job_id, agent)
   5. Email notifications sent on auto-match (preserves v1 feature)
   6. Processing reports show per-email: what extracted, what's missing, confidence per field
-  7. Integration tests cover end-to-end pipeline with fixtures
 
-**Plans**: TBD
+**Plans**: 5 plans
 
 Plans:
-- [ ] 09-01: TBD during planning
+- [ ] 09-01-PLAN.md -- Structured logging with JSON formatter and correlation ID propagation
+- [ ] 09-02-PLAN.md -- Circuit breakers for external services with email alerts
+- [ ] 09-03-PLAN.md -- Operational metrics models and daily rollup job
+- [ ] 09-04-PLAN.md -- Sentry error tracking and processing reports
+- [ ] 09-05-PLAN.md -- Pipeline integration with full monitoring
 
 ---
 
@@ -345,4 +348,4 @@ Phase 4: German Document Extraction ---------> Phase 5: Multi-Agent Pipeline
 
 ---
 
-*Last updated: 2026-02-06 -- Phase 8 complete (4/4 plans executed, 4/4 requirements satisfied)*
+*Last updated: 2026-02-06 -- Phase 9 planned (5 plans in 4 waves)*
