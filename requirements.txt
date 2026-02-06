@@ -33,8 +33,9 @@ rapidfuzz>=3.6.0
 # Text Processing
 bleach>=6.1.0
 
-# Structured Logging (Phase 1 - Saga Pattern)
-structlog>=24.1.0
+# Structured Logging (Phase 9 - JSON + Correlation ID)
+python-json-logger>=2.0.7
+asgi-correlation-id>=4.0.0
 
 # Scheduling (Phase 1 - Reconciliation)
 apscheduler>=3.10.0
