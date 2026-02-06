@@ -11,18 +11,18 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 ## Current Position
 
 Phase: 9 of 10 (Production Hardening & Monitoring)
-Plan: 2 of 4 complete
+Plan: 3 of 4 complete
 Status: In progress
-Last activity: 2026-02-06 — Completed 09-02-PLAN.md
+Last activity: 2026-02-06 — Completed 09-03-PLAN.md
 
-Progress: [████████░░] 85.0%
+Progress: [████████░░] 87.5%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 36
+- Total plans completed: 37
 - Average duration: 3.5 minutes
-- Total execution time: 2.4 hours
+- Total execution time: 2.5 hours
 
 **By Phase:**
 
@@ -36,7 +36,7 @@ Progress: [████████░░] 85.0%
 | 6 | 5 | 14.5 min | 2.9 min |
 | 7 | 4 | 13.25 min | 3.31 min |
 | 8 | 4 | 16 min | 4.0 min |
-| 9 | 2 | 13.4 min | 6.7 min |
+| 9 | 3 | 18.4 min | 6.1 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -72,7 +72,8 @@ Progress: [████████░░] 85.0%
 - 08-04: 4.0 minutes (Seeding and automated metrics rollup)
 - 09-01: 9.0 minutes (Structured JSON logging with correlation ID)
 - 09-02: 4.4 minutes (Circuit breakers with email alerts)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min, service layer ~3 min, seeding/automation ~4 min, monitoring infrastructure ~6.7 min
+- 09-03: 5.0 minutes (Operational metrics collection with rollup)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min, service layer ~3 min, seeding/automation ~4 min, monitoring infrastructure ~6.1 min
 
 *Updated after each plan completion*
 
@@ -435,18 +436,18 @@ Recent decisions affecting current work:
 **Phase 9 Deployment Prerequisites:**
 - Install dependencies: `pip install -r requirements.txt` (adds python-json-logger>=2.0.7, asgi-correlation-id>=4.0.0, pybreaker>=1.4.1)
 - Set ENVIRONMENT env var (optional, defaults to 'development')
-- Restart application - JSON logging activates automatically
-- Circuit breakers initialize on first service call (lazy initialization)
+- Run migration: `alembic upgrade head` (creates operational_metrics and operational_metrics_daily tables)
+- Restart application - JSON logging, circuit breakers, and metrics rollup activate automatically
 - Optional: Set SMTP configuration for circuit breaker email alerts
+- Verify scheduler jobs: Check logs for "job_registered", job="operational_metrics_rollup"
 
 ### Blockers/Concerns
 
-**Phase 9 In Progress:** 2 of 4 plans complete
+**Phase 9 In Progress:** 3 of 4 plans complete
 - 09-01 Complete: Structured JSON logging with correlation ID
 - 09-02 Complete: Circuit breakers with email alerts
-- 09-03 Next: Operational metrics tracking
-- 09-04 Planned: Integration testing with StubBroker
-- 09-05 Planned: Apply circuit breakers to external service calls
+- 09-03 Complete: Operational metrics collection with rollup
+- 09-04 Next: Integration testing with StubBroker
 
 **Phase 8 Complete:** All 4 plans executed successfully, verified
 - 08-01 Complete: Database models for prompt management
@@ -490,9 +491,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-06
-Stopped at: Completed 09-02-PLAN.md
+Stopped at: Completed 09-03-PLAN.md
 Resume file: None
 
 ---
 
-**Next action:** Continue Phase 9 with `/gsd:execute-plan 09-03` or plan next plan with `/gsd:plan 09-03`.
+**Next action:** Continue Phase 9 with `/gsd:execute-plan 09-04` or plan next plan with `/gsd:plan 09-04`.
