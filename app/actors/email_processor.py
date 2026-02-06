@@ -5,12 +5,13 @@ Dramatiq actor for asynchronous email processing with retry logic and state mana
 
 import gc
 import dramatiq
-import structlog
+import logging
 import psutil
 from datetime import datetime
 from typing import Optional
+from asgi_correlation_id.context import correlation_id as correlation_id_ctx
 
-logger = structlog.get_logger()
+logger = logging.getLogger(__name__)
 
 
 def should_retry(retries_so_far: int, exception: Exception) -> bool:
@@ -55,23 +56,23 @@ def should_retry(retries_so_far: int, exception: Exception) -> bool:
     permanent_failures = (ValueError, KeyError) + non_retryable_types
     if isinstance(exception, permanent_failures):
         logger.info("non_retryable_exception",
-                   exception_type=type(exception).__name__,
-                   retries=retries_so_far)
+                   extra={"exception_type": type(exception).__name__,
+                          "retries": retries_so_far})
         return False
 
     # Transient failures - retry up to max
     if isinstance(exception, retryable_types):
         should_retry_flag = retries_so_far < 5
         logger.info("retryable_exception",
-                   exception_type=type(exception).__name__,
-                   retries=retries_so_far,
-                   will_retry=should_retry_flag)
+                   extra={"exception_type": type(exception).__name__,
+                          "retries": retries_so_far,
+                          "will_retry": should_retry_flag})
         return should_retry_flag
 
     # Unknown exception - retry to be safe
     logger.warning("unknown_exception_type",
-                  exception_type=type(exception).__name__,
-                  retries=retries_so_far)
+                  extra={"exception_type": type(exception).__name__,
+                         "retries": retries_so_far})
     return retries_so_far < 5
 
 
@@ -115,14 +116,14 @@ def on_process_email_failure(message_data, exception):
 
         if email_id is None:
             logger.error("on_failure_callback_no_email_id",
-                        message=str(message_data),
-                        error=str(exception))
+                        extra={"message": str(message_data),
+                               "error": str(exception)})
             return
 
         logger.error("permanent_job_failure",
-                    email_id=email_id,
-                    error=str(exception),
-                    exception_type=type(exception).__name__)
+                    extra={"email_id": email_id,
+                           "error": str(exception),
+                           "exception_type": type(exception).__name__})
 
         # Lazy import to avoid circular dependencies
         from app.services.failure_notifier import notify_permanent_failure
@@ -133,7 +134,7 @@ def on_process_email_failure(message_data, exception):
     except Exception as e:
         # Never crash the worker - this callback is best-effort
         logger.error("on_failure_callback_error",
-                    error=str(e),
+                    extra={"error": str(e)},
                     exc_info=True)
 
 
@@ -145,7 +146,7 @@ def on_process_email_failure(message_data, exception):
     on_failure=on_process_email_failure,
     queue_name="email_processing"
 )
-def process_email(email_id: int) -> None:
+def process_email(email_id: int, correlation_id: str = None) -> None:
     """
     Process an incoming email asynchronously.
 
@@ -170,10 +171,16 @@ def process_email(email_id: int) -> None:
 
     Args:
         email_id: The IncomingEmail.id to process
+        correlation_id: Optional correlation ID from originating request for tracing
 
     Raises:
         Re-raises exceptions after updating email status to trigger Dramatiq retry logic
     """
+    # Re-establish correlation ID context for this actor execution
+    # This is necessary because Dramatiq actors run in separate threads/processes
+    # where the original HTTP request's async context is not available
+    if correlation_id:
+        correlation_id_ctx.set(correlation_id)
     # Lazy imports to avoid circular dependencies and import-time side effects
     from app.database import SessionLocal
     from app.models import IncomingEmail
@@ -182,8 +189,8 @@ def process_email(email_id: int) -> None:
     process = psutil.Process()
     memory_before_mb = process.memory_info().rss / 1024 / 1024
     logger.info("process_email_start",
-               email_id=email_id,
-               memory_mb=round(memory_before_mb, 2))
+               extra={"email_id": email_id,
+                      "memory_mb": round(memory_before_mb, 2)})
 
     db = SessionLocal()
     try:
@@ -196,14 +203,14 @@ def process_email(email_id: int) -> None:
         if email is None:
             # Row is locked by another worker or doesn't exist
             logger.warning("email_not_found_or_locked",
-                          email_id=email_id)
+                          extra={"email_id": email_id})
             return
 
         # Check if already completed
         if email.processing_status in ("completed", "failed"):
             logger.info("email_already_processed",
-                       email_id=email_id,
-                       status=email.processing_status)
+                       extra={"email_id": email_id,
+                              "status": email.processing_status})
             return
 
         # Step 2: Transition to "processing" state
@@ -212,9 +219,9 @@ def process_email(email_id: int) -> None:
         db.commit()
 
         logger.info("email_processing_started",
-                   email_id=email_id,
-                   from_email=email.from_email,
-                   subject=email.subject)
+                   extra={"email_id": email_id,
+                          "from_email": email.from_email,
+                          "subject": email.subject})
 
         # Lazy import processing dependencies
         from app.services.email_parser import email_parser
@@ -229,7 +236,7 @@ def process_email(email_id: int) -> None:
         from app.config import settings
 
         # Step 3: Parse email
-        logger.info("parsing_email", email_id=email_id)
+        logger.info("parsing_email", extra={"email_id": email_id})
         parsed = email_parser.parse_email(
             html_body=email.raw_body_html,
             text_body=email.raw_body_text
@@ -247,7 +254,7 @@ def process_email(email_id: int) -> None:
         # ========================================
 
         # Stage 1: Intent Classification (Agent 1)
-        logger.info("agent1_intent_classification_started", email_id=email_id)
+        logger.info("agent1_intent_classification_started", extra={"email_id": email_id})
         email.processing_status = "intent_classifying"
         db.commit()
 
@@ -255,16 +262,16 @@ def process_email(email_id: int) -> None:
         intent_result = classify_intent(email_id)
 
         logger.info("agent1_intent_classification_completed",
-                   email_id=email_id,
-                   intent=intent_result.get("intent"),
-                   confidence=intent_result.get("confidence"),
-                   skip_extraction=intent_result.get("skip_extraction"))
+                   extra={"email_id": email_id,
+                          "intent": intent_result.get("intent"),
+                          "confidence": intent_result.get("confidence"),
+                          "skip_extraction": intent_result.get("skip_extraction")})
 
         # Handle skip_extraction intents (auto_reply, spam)
         if intent_result.get("skip_extraction"):
             logger.info("skip_extraction_intent_detected",
-                       email_id=email_id,
-                       intent=intent_result.get("intent"))
+                       extra={"email_id": email_id,
+                              "intent": intent_result.get("intent")})
             email.processing_status = "not_creditor_reply"
             email.match_status = "no_match"
             email.completed_at = datetime.utcnow()
@@ -281,7 +288,7 @@ def process_email(email_id: int) -> None:
             return
 
         # Stage 2: Content Extraction (Agent 2)
-        logger.info("agent2_content_extraction_started", email_id=email_id)
+        logger.info("agent2_content_extraction_started", extra={"email_id": email_id})
         email.processing_status = "content_extracting"
         db.commit()
 
@@ -303,14 +310,14 @@ def process_email(email_id: int) -> None:
         )
 
         logger.info("agent2_content_extraction_completed",
-                   email_id=email_id,
-                   amount=extraction_result.get("gesamtforderung"),
-                   confidence=extraction_result.get("confidence"),
-                   sources=extraction_result.get("sources_processed"),
-                   needs_review=extraction_result.get("needs_review"))
+                   extra={"email_id": email_id,
+                          "amount": extraction_result.get("gesamtforderung"),
+                          "confidence": extraction_result.get("confidence"),
+                          "sources": extraction_result.get("sources_processed"),
+                          "needs_review": extraction_result.get("needs_review")})
 
         # Stage 3: Consolidation (Agent 3)
-        logger.info("agent3_consolidation_started", email_id=email_id)
+        logger.info("agent3_consolidation_started", extra={"email_id": email_id})
         email.processing_status = "consolidating"
         db.commit()
 
@@ -318,11 +325,11 @@ def process_email(email_id: int) -> None:
         consolidation_result = consolidate_results(email_id)
 
         logger.info("agent3_consolidation_completed",
-                   email_id=email_id,
-                   final_amount=consolidation_result.get("final_amount"),
-                   conflicts_detected=consolidation_result.get("conflicts_detected"),
-                   needs_review=consolidation_result.get("needs_review"),
-                   validation_status=consolidation_result.get("validation_status"))
+                   extra={"email_id": email_id,
+                          "final_amount": consolidation_result.get("final_amount"),
+                          "conflicts_detected": consolidation_result.get("conflicts_detected"),
+                          "needs_review": consolidation_result.get("needs_review"),
+                          "validation_status": consolidation_result.get("validation_status")})
 
         # Store pipeline results in extracted_data with pipeline_metadata
         email.extracted_data = {
@@ -346,7 +353,7 @@ def process_email(email_id: int) -> None:
 
         # Enqueue to ManualReviewQueue if needs_review
         if consolidation_result.get("needs_review"):
-            logger.info("enqueuing_for_manual_review", email_id=email_id)
+            logger.info("enqueuing_for_manual_review", extra={"email_id": email_id})
             from app.services.validation import enqueue_for_review
 
             # Determine review reason
@@ -370,14 +377,14 @@ def process_email(email_id: int) -> None:
         db.commit()
 
         logger.info("multi_agent_pipeline_completed",
-                   email_id=email_id,
-                   amount=consolidation_result.get("final_amount"),
-                   needs_review=consolidation_result.get("needs_review"))
+                   extra={"email_id": email_id,
+                          "amount": consolidation_result.get("final_amount"),
+                          "needs_review": consolidation_result.get("needs_review")})
 
         # Step 4: Extract entities with LLM (for reference_numbers and summary)
         logger.info("extracting_entities",
-                   email_id=email_id,
-                   llm_provider=settings.llm_provider)
+                   extra={"email_id": email_id,
+                          "llm_provider": settings.llm_provider})
         email.processing_status = "extracting"
         db.commit()
 
@@ -414,7 +421,7 @@ def process_email(email_id: int) -> None:
         # Step 5: Check if this is actually a creditor reply
         if not extracted_entities.is_creditor_reply:
             logger.info("not_creditor_reply",
-                       email_id=email_id)
+                       extra={"email_id": email_id})
             email.processing_status = "not_creditor_reply"
             email.match_status = "no_match"
             email.completed_at = datetime.utcnow()
@@ -428,9 +435,9 @@ def process_email(email_id: int) -> None:
 
         # Step 6: Match using MatchingEngineV2
         logger.info("matching_started",
-                   email_id=email_id,
-                   client_name=extracted_entities.client_name,
-                   creditor_name=extracted_entities.creditor_name)
+                   extra={"email_id": email_id,
+                          "client_name": extracted_entities.client_name,
+                          "creditor_name": extracted_entities.creditor_name})
         email.processing_status = "matching"
         db.commit()
 
@@ -445,9 +452,9 @@ def process_email(email_id: int) -> None:
         # Validate required fields for matching
         if not client_name or not (creditor_name or creditor_email):
             logger.warning("missing_required_fields_for_matching",
-                          email_id=email_id,
-                          has_client=bool(client_name),
-                          has_creditor=bool(creditor_name or creditor_email))
+                          extra={"email_id": email_id,
+                                 "has_client": bool(client_name),
+                                 "has_creditor": bool(creditor_name or creditor_email)})
             email.processing_status = "completed"
             email.match_status = "no_match"
             email.completed_at = datetime.utcnow()
@@ -481,9 +488,9 @@ def process_email(email_id: int) -> None:
         engine.save_match_results(email_id, matching_result)
 
         logger.info("matching_completed",
-                   email_id=email_id,
-                   status=matching_result.status,
-                   candidates_count=len(matching_result.candidates))
+                   extra={"email_id": email_id,
+                          "status": matching_result.status,
+                          "candidates_count": len(matching_result.candidates)})
 
         # ========================================
         # PHASE 7: Confidence Scoring & Routing
@@ -517,22 +524,22 @@ def process_email(email_id: int) -> None:
 
         logger.info(
             "confidence_routing_determined",
-            email_id=email_id,
-            overall=confidence_result.overall,
-            extraction=confidence_result.extraction,
-            match=confidence_result.match,
-            weakest_link=confidence_result.weakest_link,
-            route=route.action.value
+            extra={"email_id": email_id,
+                   "overall": confidence_result.overall,
+                   "extraction": confidence_result.extraction,
+                   "match": confidence_result.match,
+                   "weakest_link": confidence_result.weakest_link,
+                   "route": route.action.value}
         )
 
         # Handle matching outcomes
         if matching_result.status == "auto_matched":
             # AUTO-MATCHED: Apply confidence routing
             logger.info("auto_matched",
-                       email_id=email_id,
-                       inquiry_id=matching_result.match.inquiry.id,
-                       score=matching_result.match.total_score,
-                       confidence_route=route.action.value)
+                       extra={"email_id": email_id,
+                              "inquiry_id": matching_result.match.inquiry.id,
+                              "score": matching_result.match.total_score,
+                              "confidence_route": route.action.value})
 
             # Set matched_inquiry_id from the matched candidate
             matched_inquiry = matching_result.match.inquiry
@@ -590,24 +597,24 @@ def process_email(email_id: int) -> None:
                 email.match_status = "auto_matched"
                 email.match_confidence = int(matching_result.match.total_score * 100)
                 logger.info("mongodb_update_success",
-                           email_id=email_id,
-                           client_name=client_name,
-                           creditor_name=creditor_name_or_email,
-                           amount=new_debt_amount)
+                           extra={"email_id": email_id,
+                                  "client_name": client_name,
+                                  "creditor_name": creditor_name_or_email,
+                                  "amount": new_debt_amount})
 
                 # Apply confidence-based notification routing
                 if route.action == RoutingAction.AUTO_UPDATE:
                     # HIGH confidence: auto-update with log only, NO notification
                     logger.info("high_confidence_auto_update",
-                               email_id=email_id,
-                               confidence=confidence_result.overall)
+                               extra={"email_id": email_id,
+                                      "confidence": confidence_result.overall})
                     # Do NOT send notification
 
                 elif route.action == RoutingAction.UPDATE_AND_NOTIFY:
                     # MEDIUM confidence: write to database, then notify review team
                     logger.info("medium_confidence_update_and_notify",
-                               email_id=email_id,
-                               confidence=confidence_result.overall)
+                               extra={"email_id": email_id,
+                                      "confidence": confidence_result.overall})
 
                     # Send email notification for verification
                     email_notifier.send_debt_update_notification(
@@ -625,8 +632,8 @@ def process_email(email_id: int) -> None:
                 elif route.action == RoutingAction.MANUAL_REVIEW:
                     # LOW confidence: route to manual review queue even if auto-matched
                     logger.info("low_confidence_manual_review_override",
-                               email_id=email_id,
-                               confidence=confidence_result.overall)
+                               extra={"email_id": email_id,
+                                      "confidence": confidence_result.overall})
 
                     from app.services.validation import enqueue_for_review
                     expiration_days = get_review_expiration_days(route.level)
@@ -649,16 +656,16 @@ def process_email(email_id: int) -> None:
             else:
                 email.match_status = "no_match"
                 logger.warning("mongodb_update_failed",
-                              email_id=email_id,
-                              client_name=client_name,
-                              creditor_name=creditor_name_or_email)
+                              extra={"email_id": email_id,
+                                     "client_name": client_name,
+                                     "creditor_name": creditor_name_or_email})
 
         else:
             # AMBIGUOUS / BELOW_THRESHOLD / NO_RECENT_INQUIRY: Enqueue to ManualReviewQueue
             logger.info("non_auto_matched_enqueuing_for_review",
-                       email_id=email_id,
-                       status=matching_result.status,
-                       confidence_route=route.action.value)
+                       extra={"email_id": email_id,
+                              "status": matching_result.status,
+                              "confidence_route": route.action.value})
 
             review_id = enqueue_ambiguous_match(db, email_id, matching_result)
 
@@ -666,14 +673,14 @@ def process_email(email_id: int) -> None:
                 email.match_status = "needs_review"
                 email.match_confidence = int(matching_result.candidates[0].total_score * 100) if matching_result.candidates else 0
                 logger.info("enqueued_for_manual_review",
-                           email_id=email_id,
-                           review_id=review_id,
-                           status=matching_result.status)
+                           extra={"email_id": email_id,
+                                  "review_id": review_id,
+                                  "status": matching_result.status})
             else:
                 # Duplicate skipped
                 email.match_status = "needs_review"
                 logger.info("review_queue_duplicate",
-                           email_id=email_id)
+                           extra={"email_id": email_id})
 
         # Step 7: Mark as completed
         email.processing_status = "completed"
@@ -682,15 +689,15 @@ def process_email(email_id: int) -> None:
         db.commit()
 
         logger.info("email_processing_completed",
-                   email_id=email_id,
-                   match_status=email.match_status)
+                   extra={"email_id": email_id,
+                          "match_status": email.match_status})
 
     except Exception as e:
         # Load email fresh and mark as failed
         logger.error("email_processing_error",
-                    email_id=email_id,
-                    error=str(e),
-                    exception_type=type(e).__name__,
+                    extra={"email_id": email_id,
+                           "error": str(e),
+                           "exception_type": type(e).__name__},
                     exc_info=True)
 
         try:
@@ -704,8 +711,8 @@ def process_email(email_id: int) -> None:
                 db.commit()
         except Exception as commit_error:
             logger.error("failed_to_update_error_status",
-                        email_id=email_id,
-                        error=str(commit_error))
+                        extra={"email_id": email_id,
+                               "error": str(commit_error)})
 
         # Re-raise to trigger Dramatiq retry logic
         # The on_failure callback will be invoked only after all retries exhausted
@@ -721,7 +728,7 @@ def process_email(email_id: int) -> None:
         # Log memory after gc
         memory_after_mb = process.memory_info().rss / 1024 / 1024
         logger.info("process_email_complete",
-                   email_id=email_id,
-                   memory_before_mb=round(memory_before_mb, 2),
-                   memory_after_mb=round(memory_after_mb, 2),
-                   memory_freed_mb=round(memory_before_mb - memory_after_mb, 2))
+                   extra={"email_id": email_id,
+                          "memory_before_mb": round(memory_before_mb, 2),
+                          "memory_after_mb": round(memory_after_mb, 2),
+                          "memory_freed_mb": round(memory_before_mb - memory_after_mb, 2)})
