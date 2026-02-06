@@ -15,6 +15,7 @@ from app.models.calibration_sample import CalibrationSample
 from app.models.prompt_template import PromptTemplate
 from app.models.prompt_metrics import PromptPerformanceMetrics, PromptPerformanceDaily
 from app.models.operational_metrics import OperationalMetrics, OperationalMetricsDaily
+from app.models.processing_report import ProcessingReport
 
 __all__ = [
     "IncomingEmail",
@@ -33,4 +34,5 @@ __all__ = [
     "PromptPerformanceDaily",
     "OperationalMetrics",
     "OperationalMetricsDaily",
+    "ProcessingReport",
 ]
