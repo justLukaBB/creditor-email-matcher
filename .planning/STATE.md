@@ -6,23 +6,23 @@ See: .planning/PROJECT.md (updated 2026-02-04)
 
 **Core value:** Gläubiger-Antworten werden zuverlässig dem richtigen Mandanten und Gläubiger zugeordnet und die Forderungsdaten korrekt in die Datenbank geschrieben — ohne manuellen Aufwand.
 
-**Current focus:** Phase 8 - Database-Backed Prompt Management (IN PROGRESS)
+**Current focus:** Phase 8 - Database-Backed Prompt Management (COMPLETE)
 
 ## Current Position
 
 Phase: 8 of 10 (Database-Backed Prompt Management)
-Plan: 3 of 4 complete
-Status: In progress
-Last activity: 2026-02-06 — Completed 08-03-PLAN.md (Prompt integration into extractors)
+Plan: 4 of 4 complete
+Status: Phase complete
+Last activity: 2026-02-06 — Completed 08-04-PLAN.md (Seeding and automated metrics rollup)
 
-Progress: [████████░░] 82.5%
+Progress: [████████░░] 85.0%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 33
-- Average duration: 3.21 minutes
-- Total execution time: 2.04 hours
+- Total plans completed: 34
+- Average duration: 3.24 minutes
+- Total execution time: 2.15 hours
 
 **By Phase:**
 
@@ -35,7 +35,7 @@ Progress: [████████░░] 82.5%
 | 5 | 5 | 17.7 min | 3.5 min |
 | 6 | 5 | 14.5 min | 2.9 min |
 | 7 | 4 | 13.25 min | 3.31 min |
-| 8 | 3 | 12 min | 4.0 min |
+| 8 | 4 | 16 min | 4.0 min |
 
 **Recent Trend:**
 - 02-01: 3 minutes (Dramatiq broker infrastructure setup)
@@ -68,7 +68,8 @@ Progress: [████████░░] 82.5%
 - 08-01: 3.0 minutes (Database models for prompt management)
 - 08-02: 3.0 minutes (Prompt management services with Jinja2 rendering)
 - 08-03: 6.0 minutes (Prompt integration into extractors)
-- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min, service layer ~3 min
+- 08-04: 4.0 minutes (Seeding and automated metrics rollup)
+- Trend: Schema/model updates ~3 min, API/integration work ~5 min, text processing ~3.5 min, prompt updates ~1.5 min, extractor integration ~5 min, validation infrastructure ~4 min, agent implementation ~3.5 min, pipeline integration ~3 min, signal scoring ~2.5 min, matching engine ~2.9 min, confidence scoring ~3.3 min, service layer ~3 min, seeding/automation ~4 min
 
 *Updated after each plan completion*
 
@@ -377,6 +378,16 @@ Recent decisions affecting current work:
 - Vision prompts (PDF, image) don't use variable interpolation (documents are visual)
 - Backward compatibility: all new parameters optional, zero breaking changes
 
+**New from 08-04:**
+- Seed script migrates 4 hardcoded prompts to database as v1 (all is_active=True)
+- Idempotent seeding: checks for existing (task_type, name, version) before inserting
+- Jinja2 variable syntax: {{ variable }} instead of f-string {variable}
+- Daily rollup at 01:00 aggregates raw metrics into prompt_performance_daily
+- Upsert pattern for rollups: updates existing records, inserts new
+- Cleanup job deletes raw metrics older than 30 days (USER DECISION)
+- Centralized scheduler module (app/scheduler.py) exports all background jobs
+- Combined rollup+cleanup job reduces scheduler complexity
+
 ### Pending Todos
 
 **Phase 2 Deployment Prerequisites:**
@@ -392,7 +403,21 @@ Recent decisions affecting current work:
 - Run baseline audit: `python scripts/audit_consistency.py --lookback-days 30` to establish current consistency state
 - Tune reconciliation frequency based on production metrics (currently hourly)
 
+**Phase 8 Deployment Prerequisites:**
+- Run migration: `alembic upgrade head` (creates prompt_templates and metrics tables)
+- Seed initial prompts: `python scripts/seed_prompts.py` (one-time operation)
+- Verify active prompts: `SELECT task_type, name, version FROM prompt_templates WHERE is_active = TRUE;` (should return 4 rows)
+- Restart application to start scheduler with daily rollup job
+
 ### Blockers/Concerns
+
+**Phase 8 Complete:** All 4 plans executed successfully
+- 08-01 Complete: Database models for prompt management
+- 08-02 Complete: Prompt management services with Jinja2 rendering
+- 08-03 Complete: Prompt integration into extractors
+- 08-04 Complete: Seeding and automated metrics rollup
+- Migration required: `alembic upgrade head` to create prompt tables
+- Seed script required: `python scripts/seed_prompts.py` after migration
 
 **Phase 7 Complete:** All 4 plans executed successfully
 - 07-01 Complete: Confidence dimension calculators and CalibrationSample model
@@ -428,9 +453,9 @@ Recent decisions affecting current work:
 ## Session Continuity
 
 Last session: 2026-02-06
-Stopped at: Completed 08-03-PLAN.md
+Stopped at: Completed 08-04-PLAN.md
 Resume file: None
 
 ---
 
-**Next action:** Continue Phase 8 with plan 08-04 (Seeding and testing).
+**Next action:** Phase 8 complete. Ready for Phase 9 (Performance Monitoring and Alerting) or Phase 10 (Advanced Matching Features).
