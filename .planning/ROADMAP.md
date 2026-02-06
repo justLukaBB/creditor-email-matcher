@@ -205,7 +205,7 @@ Plans:
 ---
 
 ### Phase 8: Database-Backed Prompt Management
-**Goal**: Prompts stored in PostgreSQL with version tracking enable A/B testing, instant rollback, and audit trails without redeployment.
+**Goal**: Prompts stored in PostgreSQL with version tracking enable runtime updates, rollback, and audit trails without redeployment.
 
 **Depends on**: Phase 7 (prompt performance tracking requires confidence metrics)
 
@@ -216,12 +216,17 @@ Plans:
   2. Every extraction logs the prompt version used for audit trail
   3. Jinja2 template engine enables variable interpolation in prompts
   4. Prompt performance tracked: tokens used, execution time, success rate per version
-  5. A/B testing deploys new prompts to subset of traffic before full rollout (COULD have)
+  5. A/B testing deploys new prompts to subset of traffic before full rollout (COULD have - DEFERRED)
 
-**Plans**: TBD
+**NOTE:** A/B testing (REQ-PROMPT-05) deferred per user decision in CONTEXT.md.
+
+**Plans**: 4 plans
 
 Plans:
-- [ ] 08-01: TBD during planning
+- [ ] 08-01-PLAN.md -- PromptTemplate, PromptPerformanceMetrics, PromptPerformanceDaily models and migration
+- [ ] 08-02-PLAN.md -- PromptRenderer (Jinja2), PromptVersionManager, PromptMetricsService
+- [ ] 08-03-PLAN.md -- Extractor integration (intent_classifier, entity_extractor, pdf_extractor, image_extractor)
+- [ ] 08-04-PLAN.md -- Seed initial prompts and daily metrics rollup job
 
 ---
 
@@ -340,4 +345,4 @@ Phase 4: German Document Extraction ---------> Phase 5: Multi-Agent Pipeline
 
 ---
 
-*Last updated: 2026-02-05 -- Phase 7 complete (4 plans executed)*
+*Last updated: 2026-02-06 -- Phase 8 planned (4 plans in 4 waves)*
