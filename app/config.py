@@ -57,6 +57,12 @@ class Settings(BaseSettings):
     confidence_low_threshold: float = 0.60   # Below this = manual review queue
     # Note: MEDIUM is between LOW and HIGH thresholds
 
+    # Circuit Breaker Configuration (Phase 9)
+    # USER DECISION: 5 consecutive failures, 60 seconds auto-recovery
+    circuit_breaker_fail_max: int = 5  # Consecutive failures before opening circuit
+    circuit_breaker_reset_timeout: int = 60  # Seconds before auto-recovery attempt
+    circuit_breaker_alert_email: Optional[str] = None  # Falls back to admin_email
+
     class Config:
         env_file = ".env"
         case_sensitive = False
