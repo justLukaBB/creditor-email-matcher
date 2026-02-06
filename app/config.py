@@ -63,6 +63,10 @@ class Settings(BaseSettings):
     circuit_breaker_reset_timeout: int = 60  # Seconds before auto-recovery attempt
     circuit_breaker_alert_email: Optional[str] = None  # Falls back to admin_email
 
+    # Sentry Error Tracking (Phase 9)
+    sentry_dsn: Optional[str] = None  # Sentry project DSN
+    sentry_environment: Optional[str] = None  # Defaults to environment setting
+
     class Config:
         env_file = ".env"
         case_sensitive = False

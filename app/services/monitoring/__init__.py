@@ -13,6 +13,12 @@ from app.services.monitoring.circuit_breakers import (
     CircuitBreakerEmailListener,
 )
 from app.services.monitoring.metrics import MetricsCollector, get_metrics_collector
+from app.services.monitoring.error_tracking import (
+    init_sentry,
+    set_processing_context,
+    add_breadcrumb,
+    capture_message,
+)
 
 __all__ = [
     "setup_logging",
@@ -25,4 +31,8 @@ __all__ = [
     "CircuitBreakerEmailListener",
     "MetricsCollector",
     "get_metrics_collector",
+    "init_sentry",
+    "set_processing_context",
+    "add_breadcrumb",
+    "capture_message",
 ]

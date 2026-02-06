@@ -40,6 +40,9 @@ asgi-correlation-id>=4.0.0
 # Circuit Breakers (Phase 9 - Fault Tolerance)
 pybreaker>=1.4.1
 
+# Error Tracking (Phase 9 - Sentry Integration)
+sentry-sdk[fastapi]>=2.0.0
+
 # Scheduling (Phase 1 - Reconciliation)
 apscheduler>=3.10.0
 
