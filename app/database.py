@@ -22,9 +22,14 @@ def init_db():
         logger.warning("DATABASE_URL not configured - database features disabled")
         return
 
+    # Convert postgresql:// to postgresql+psycopg:// for psycopg3 driver
+    db_url = settings.database_url
+    if db_url.startswith("postgresql://"):
+        db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
     logger.info(f"Connecting to database...")
     engine = create_engine(
-        settings.database_url,
+        db_url,
         pool_pre_ping=True,  # Verify connections before using them
         pool_size=5,
         max_overflow=10
