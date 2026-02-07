@@ -158,8 +158,18 @@ class EntityExtractorClaude:
             # Parse the response
             result_text = message.content[0].text
 
-            # Claude returns the JSON directly
-            result_dict = json.loads(result_text)
+            # Strip markdown code blocks if present (```json ... ```)
+            cleaned_text = result_text.strip()
+            if cleaned_text.startswith("```"):
+                # Remove opening code block (```json or ```)
+                first_newline = cleaned_text.find('\n')
+                if first_newline != -1:
+                    cleaned_text = cleaned_text[first_newline + 1:]
+                # Remove closing code block
+                if cleaned_text.endswith("```"):
+                    cleaned_text = cleaned_text[:-3].strip()
+
+            result_dict = json.loads(cleaned_text)
 
             # Convert to ExtractedEntities
             entities = ExtractedEntities(**result_dict)

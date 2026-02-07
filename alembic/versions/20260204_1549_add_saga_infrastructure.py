@@ -1,7 +1,7 @@
 """add_saga_infrastructure
 
 Revision ID: 20260204_1549_add_saga
-Revises: 20260107_1733_381db1c8de34
+Revises: None
 Create Date: 2026-02-04 15:49:04
 
 """

@@ -32,7 +32,8 @@ def calculate_overall_confidence(
     agent_checkpoints: Optional[Dict[str, Any]],
     document_types: List[str],
     match_result: Optional[Dict[str, Any]],
-    include_intent: bool = False
+    include_intent: bool = False,
+    final_extracted_data: Optional[Dict[str, Any]] = None
 ) -> OverallConfidence:
     """
     Calculate overall confidence using weakest-link principle.
@@ -49,6 +50,7 @@ def calculate_overall_confidence(
         document_types: List of source types processed (native_pdf, scanned_pdf, etc.)
         match_result: Dict from MatchingEngineV2 or None
         include_intent: Whether to factor in intent classification confidence
+        final_extracted_data: Merged extracted data (from entity extraction), used for completeness check
 
     Returns:
         OverallConfidence with breakdown of all dimensions
@@ -57,7 +59,7 @@ def calculate_overall_confidence(
     dimensions_used = []
 
     # Calculate extraction confidence
-    extraction_conf = calculate_extraction_confidence(agent_checkpoints, document_types)
+    extraction_conf = calculate_extraction_confidence(agent_checkpoints, document_types, final_extracted_data)
     dimensions["extraction"] = extraction_conf
     dimensions_used.append("extraction")
 

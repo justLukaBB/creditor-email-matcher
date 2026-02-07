@@ -43,7 +43,9 @@ AMBIGUITY_PENALTY = 0.3
 
 
 def calculate_extraction_confidence(
-    agent_checkpoints: dict, document_types: list[str]
+    agent_checkpoints: dict,
+    document_types: list[str],
+    final_extracted_data: dict = None
 ) -> float:
     """
     Calculate extraction confidence based on source quality and completeness.
@@ -54,6 +56,7 @@ def calculate_extraction_confidence(
     Args:
         agent_checkpoints: JSONB agent checkpoints containing agent_2_extraction
         document_types: List of processed document types (e.g., ["native_pdf", "email_body"])
+        final_extracted_data: Merged extracted data from entity extraction (preferred for completeness check)
 
     Returns:
         float: Confidence score 0.0-1.0
@@ -94,10 +97,21 @@ def calculate_extraction_confidence(
     )
 
     # Check completeness of key fields
-    extracted_data = agent_2.get("extracted_data", {})
+    # Prefer final_extracted_data (from entity extraction) over checkpoint data
+    if final_extracted_data:
+        extracted_data = final_extracted_data
+    else:
+        # Fallback: Fields may be at top level or inside "extracted_data"
+        extracted_data = agent_2.get("extracted_data", agent_2)
+
     missing_fields = []
     for field in KEY_FIELDS:
-        value = extracted_data.get(field)
+        # Map "amount" to "debt_amount" (final_extracted_data) or "gesamtforderung" (checkpoint)
+        if field == "amount":
+            check_field = "debt_amount" if final_extracted_data else "gesamtforderung"
+        else:
+            check_field = field
+        value = extracted_data.get(check_field)
         if value is None or (isinstance(value, str) and not value.strip()):
             missing_fields.append(field)
 

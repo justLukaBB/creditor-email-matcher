@@ -112,14 +112,14 @@ uvicorn app.main:app --reload
 
 **7. Test with a webhook call:**
 ```bash
-curl -X POST http://localhost:8000/api/webhook/zendesk \
+curl -X POST http://localhost:8000/api/tickets/incoming \
   -H "Content-Type: application/json" \
   -d '{
     "ticket_id": "12345",
-    "from_email": "creditor@example.com",
+    "requester_email": "creditor@example.com",
+    "requester_name": "Test Creditor",
     "subject": "Re: Your debt inquiry",
-    "body": "Dear Sir, regarding client Max Müller, the outstanding amount is 1.234,56 EUR.",
-    "received_at": "2026-02-06T12:00:00Z",
+    "description": "Dear Sir, regarding client Max Müller, the outstanding amount is 1.234,56 EUR.",
     "attachments": []
   }'
 ```

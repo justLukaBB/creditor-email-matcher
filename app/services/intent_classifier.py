@@ -167,12 +167,12 @@ def classify_intent_with_llm(body: str, subject: str, email_id: int = None) -> I
             variables={'subject': subject, 'truncated_body': truncated_body},
             template_name='classification.email_intent'
         )
-        model_name = prompt_template.model_name or "claude-haiku-4-20250514"
+        model_name = prompt_template.model_name or "claude-3-5-haiku-20241022"
         temperature = prompt_template.temperature if prompt_template.temperature is not None else 0.0
         max_tokens = prompt_template.max_tokens or 100
     else:
         # Fallback to hardcoded prompt (current behavior)
-        model_name = "claude-haiku-4-20250514"
+        model_name = "claude-3-5-haiku-20241022"
         temperature = 0.0
         max_tokens = 100
         prompt = f"""Klassifiziere die E-Mail-Intent in eine der folgenden Kategorien:
@@ -195,7 +195,7 @@ Antworte nur mit JSON:
 
     try:
         # Use Claude Haiku (cheapest model for classification)
-        client = Anthropic()
+        client = Anthropic(api_key=settings.anthropic_api_key)
         response = client.messages.create(
             model=model_name,
             max_tokens=max_tokens,
@@ -309,9 +309,11 @@ def classify_email_intent(email_id: int, headers: Dict[str, str], subject: str, 
     cheap_result = classify_intent_cheap(headers, subject, body)
 
     if cheap_result is not None:
+        # Handle both enum and string (due to use_enum_values=True in Pydantic config)
+        cheap_intent = cheap_result.intent.value if hasattr(cheap_result.intent, 'value') else cheap_result.intent
         logger.info("intent_classification_complete",
                    email_id=email_id,
-                   intent=cheap_result.intent.value,
+                   intent=cheap_intent,
                    confidence=cheap_result.confidence,
                    method=cheap_result.method,
                    cost="$0.00")
@@ -320,9 +322,11 @@ def classify_email_intent(email_id: int, headers: Dict[str, str], subject: str, 
     # Ambiguous - use LLM
     llm_result = classify_intent_with_llm(body, subject, email_id=email_id)
 
+    # Handle both enum and string (due to use_enum_values=True in Pydantic config)
+    intent_value = llm_result.intent.value if hasattr(llm_result.intent, 'value') else llm_result.intent
     logger.info("intent_classification_complete",
                email_id=email_id,
-               intent=llm_result.intent.value,
+               intent=intent_value,
                confidence=llm_result.confidence,
                method=llm_result.method,
                cost="~$0.001")

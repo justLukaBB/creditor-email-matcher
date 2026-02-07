@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     # Database
     database_url: Optional[str] = None
     mongodb_url: Optional[str] = None
+    mongodb_database: str = "mandanten_portal"  # Database name in MongoDB
 
     # Redis & Job Queue
     redis_url: Optional[str] = None
@@ -26,6 +27,7 @@ class Settings(BaseSettings):
     llm_provider: str = "claude"
     anthropic_api_key: Optional[str] = None
     anthropic_model: str = "claude-sonnet-4-5-20250929"
+    openai_api_key: Optional[str] = None  # For OpenAI fallback (optional)
 
     # Email Notifications
     admin_email: Optional[str] = None

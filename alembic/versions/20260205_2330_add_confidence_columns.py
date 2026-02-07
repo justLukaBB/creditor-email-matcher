@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20260205_2330'
-down_revision = '20260205_2300'  # After calibration_samples
+down_revision = '20260205_2300_add_calibration'  # After calibration_samples
 branch_labels = None
 depends_on = None
 

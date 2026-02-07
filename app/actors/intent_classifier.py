@@ -131,16 +131,19 @@ def classify_intent(email_id: int) -> Dict:
         confidence_threshold = 0.7
         needs_review = result.confidence < confidence_threshold
 
+        # Handle both enum and string (due to use_enum_values=True in Pydantic config)
+        intent_value = intent_value if hasattr(result.intent, 'value') else result.intent
+
         if needs_review:
             logger.warning("low_confidence_classification",
                           email_id=email_id,
-                          intent=result.intent.value,
+                          intent=intent_value,
                           confidence=result.confidence,
                           threshold=confidence_threshold)
 
         # Save checkpoint
         checkpoint_data = {
-            "intent": result.intent.value,
+            "intent": intent_value,
             "confidence": result.confidence,
             "method": result.method,
             "skip_extraction": result.skip_extraction,
@@ -151,7 +154,7 @@ def classify_intent(email_id: int) -> Dict:
 
         logger.info("intent_classified",
                    email_id=email_id,
-                   intent=result.intent.value,
+                   intent=intent_value,
                    confidence=result.confidence,
                    method=result.method,
                    skip_extraction=result.skip_extraction,
@@ -160,7 +163,7 @@ def classify_intent(email_id: int) -> Dict:
         # Return structured dict for pipeline chaining
         return {
             "email_id": email_id,
-            "intent": result.intent.value,
+            "intent": intent_value,
             "confidence": result.confidence,
             "skip_extraction": result.skip_extraction,
             "needs_review": needs_review,

@@ -117,9 +117,24 @@ class MongoDBService:
 
             if not client and client_name:
                 # Try to split name into first and last
-                name_parts = client_name.strip().split(None, 1)  # Split on first space
-                if len(name_parts) == 2:
-                    first_name, last_name = name_parts
+                # Handle "LastName, FirstName" format (common in German documents)
+                name_to_parse = client_name.strip()
+                if ',' in name_to_parse:
+                    # "Stockhöfer, Tobias" → first_name="Tobias", last_name="Stockhöfer"
+                    parts = [p.strip() for p in name_to_parse.split(',', 1)]
+                    if len(parts) == 2:
+                        last_name, first_name = parts[0], parts[1]
+                        logger.info("name_format_detected", format="LastName, FirstName",
+                                   first_name=first_name, last_name=last_name)
+                    else:
+                        name_parts = name_to_parse.split(None, 1)
+                        first_name, last_name = (name_parts[0], name_parts[1]) if len(name_parts) == 2 else (name_to_parse, "")
+                else:
+                    # Standard "FirstName LastName" format
+                    name_parts = name_to_parse.split(None, 1)
+                    first_name, last_name = (name_parts[0], name_parts[1]) if len(name_parts) == 2 else (name_to_parse, "")
+
+                if first_name and last_name:
                     client = clients_collection.find_one({
                         'firstName': {'$regex': f'^{first_name}$', '$options': 'i'},
                         'lastName': {'$regex': f'^{last_name}$', '$options': 'i'}
@@ -150,12 +165,25 @@ class MongoDBService:
                 email_match = False
                 name_match = False
 
-                # Email matching (exact or contains)
+                # Email matching (exact, contains, or domain match)
                 if creditor_email and cred.get('sender_email'):
                     cred_email = cred.get('sender_email', '').lower().strip()
                     search_email = creditor_email.lower().strip()
-                    # Check if either contains the other (handles partial matches)
+
+                    # Strategy 1: Check if either contains the other (handles partial matches)
                     email_match = (search_email in cred_email) or (cred_email in search_email)
+
+                    # Strategy 2: Domain matching (same company, different email address)
+                    # e.g., inkasso@sparkasse.de vs forderungsmanagement@sparkasse.de
+                    if not email_match and '@' in cred_email and '@' in search_email:
+                        cred_domain = cred_email.split('@')[-1]
+                        search_domain = search_email.split('@')[-1]
+                        if cred_domain == search_domain:
+                            email_match = True
+                            logger.info("domain_match",
+                                       cred_email=cred_email,
+                                       search_email=search_email,
+                                       domain=cred_domain)
 
                 # Name matching (fuzzy - check if words overlap)
                 if creditor_name and cred.get('sender_name'):

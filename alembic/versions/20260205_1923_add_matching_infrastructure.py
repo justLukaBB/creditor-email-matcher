@@ -159,10 +159,10 @@ def upgrade() -> None:
     """)
 
     op.execute("""
-        INSERT INTO matching_thresholds (category, threshold_type, weight_name, weight_value, description)
+        INSERT INTO matching_thresholds (category, threshold_type, threshold_value, weight_name, weight_value, description)
         VALUES
-            ('default', 'weight', 'client_name', 0.4000, 'Weight for client name signal'),
-            ('default', 'weight', 'reference_number', 0.6000, 'Weight for reference number signal')
+            ('default', 'weight', 0.0000, 'client_name', 0.4000, 'Weight for client name signal'),
+            ('default', 'weight', 0.0000, 'reference_number', 0.6000, 'Weight for reference number signal')
     """)
 
 

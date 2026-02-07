@@ -147,9 +147,9 @@ def on_process_email_failure(message_data, exception):
     min_backoff=15000,  # 15 seconds
     max_backoff=300000,  # 5 minutes
     retry_when=should_retry,
-    on_failure=on_process_email_failure,
     queue_name="email_processing"
 )
+# Note: on_failure removed - use Dramatiq's builtin error handling instead
 def process_email(email_id: int, correlation_id: str = None) -> None:
     """
     Process an incoming email asynchronously.
@@ -186,8 +186,15 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
     if correlation_id:
         correlation_id_ctx.set(correlation_id)
     # Lazy imports to avoid circular dependencies and import-time side effects
-    from app.database import SessionLocal
+    from app.database import init_db
+    import app.database as database
     from app.models import IncomingEmail
+
+    # Ensure database is initialized in worker process
+    if database.SessionLocal is None:
+        init_db()
+
+    SessionLocal = database.SessionLocal
 
     # Log memory before processing
     process = psutil.Process()
@@ -568,7 +575,8 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 "status": matching_result.status,
                 "total_score": matching_result.match.total_score if matching_result.match else 0,
                 "candidates": len(matching_result.candidates)
-            } if matching_result else None
+            } if matching_result else None,
+            final_extracted_data=email.extracted_data  # Use merged data for completeness check
         )
 
         # Store confidence breakdown
@@ -608,10 +616,13 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
             email.matched_inquiry_id = matched_inquiry.id
 
             # Extract aktenzeichen from reference numbers
+            # Accepts formats like: "476982_64928", "542900", "AZ-123456"
+            import re
             client_aktenzeichen = None
             if reference_numbers:
                 for ref in reference_numbers:
-                    if ref.isdigit() and len(ref) >= 4:
+                    # Match references with digits (optionally separated by underscores/hyphens)
+                    if re.match(r'^[\d_\-]+$', ref) and len(ref) >= 4:
                         client_aktenzeichen = ref
                         break
 

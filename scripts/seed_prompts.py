@@ -12,8 +12,11 @@ Idempotent: skips prompts that already exist (checks task_type + name + version)
 """
 
 from sqlalchemy import and_
-from app.database import SessionLocal
+import app.database as database
 from app.models.prompt_template import PromptTemplate
+
+# Initialize database connection
+database.init_db()
 
 PROMPTS_TO_SEED = [
     {
@@ -193,7 +196,7 @@ def seed_initial_prompts():
     Idempotent: checks for existing versions before inserting.
     All prompts seeded as v1 with is_active=True.
     """
-    db = SessionLocal()
+    db = database.SessionLocal()
 
     try:
         seeded_count = 0
