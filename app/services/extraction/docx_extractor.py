@@ -105,6 +105,9 @@ class DOCXExtractor:
                 f"{table_count} tables from {os.path.basename(docx_path)}"
             )
 
+            # Store extracted text for entity extraction fallback
+            result.extracted_text = combined_text
+
             # Extract amounts and names from combined text
             return self._extract_from_text(combined_text, result)
 

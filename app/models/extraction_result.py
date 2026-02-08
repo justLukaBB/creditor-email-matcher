@@ -96,6 +96,10 @@ class SourceExtractionResult(BaseModel):
         default=None,
         description="Error message if extraction failed for this source"
     )
+    extracted_text: Optional[str] = Field(
+        default=None,
+        description="Raw text extracted from this source (for entity extraction fallback)"
+    )
 
 
 class ConsolidatedExtractionResult(BaseModel):

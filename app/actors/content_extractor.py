@@ -373,6 +373,13 @@ def extract_content(
         result_dict = result.model_dump()
         result_dict["needs_review"] = needs_review
 
+        # Collect all extracted texts from attachments for entity extraction
+        attachment_texts = []
+        for source in result.source_results:
+            if source.extracted_text and source.source_type != "email_body":
+                attachment_texts.append(source.extracted_text)
+        result_dict["attachment_texts"] = attachment_texts
+
         # Step 6: Save checkpoint after successful extraction
         save_checkpoint(db, email_id, "agent_2_extraction", result_dict)
 

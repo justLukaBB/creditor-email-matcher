@@ -74,7 +74,8 @@ class EntityExtractorClaude:
         from_email: str,
         subject: Optional[str] = None,
         email_id: int = None,
-        db: "Session" = None
+        db: "Session" = None,
+        attachment_texts: Optional[List[str]] = None
     ) -> ExtractedEntities:
         """
         Extract structured entities from email content
@@ -85,6 +86,7 @@ class EntityExtractorClaude:
             subject: Email subject line
             email_id: Optional email ID for metrics tracking
             db: Optional database session for prompt loading and metrics
+            attachment_texts: Optional list of extracted text from attachments (DOCX, PDF, etc.)
 
         Returns:
             ExtractedEntities object with extracted data
@@ -107,12 +109,20 @@ class EntityExtractorClaude:
                 if prompt_template:
                     system_prompt = prompt_template.system_prompt
                     renderer = PromptRenderer()
+                    # Build attachment text section if available
+                    attachment_section = ""
+                    if attachment_texts:
+                        attachment_section = "\n\n**Anhänge (extrahierter Text)**:"
+                        for i, text in enumerate(attachment_texts, 1):
+                            truncated = text[:3000] if len(text) > 3000 else text
+                            attachment_section += f"\n--- Anhang {i} ---\n{truncated}"
                     user_template = renderer.render(
                         prompt_template.user_prompt_template,
                         variables={
                             'from_email': from_email,
                             'subject': subject or '',
-                            'email_body': email_body
+                            'email_body': email_body,
+                            'attachment_texts': attachment_section
                         },
                         template_name='extraction.email_body'
                     )
@@ -123,7 +133,7 @@ class EntityExtractorClaude:
         if not system_prompt:
             system_prompt = self._get_system_prompt()
         if not user_template:
-            user_template = self._build_extraction_prompt(email_body, from_email, subject)
+            user_template = self._build_extraction_prompt(email_body, from_email, subject, attachment_texts)
 
         start_time = time.time()
 
@@ -264,10 +274,11 @@ Extrahiere die folgenden Informationen aus der E-Mail:
         self,
         email_body: str,
         from_email: str,
-        subject: Optional[str]
+        subject: Optional[str],
+        attachment_texts: Optional[List[str]] = None
     ) -> str:
         """
-        Build the user prompt with email content
+        Build the user prompt with email content and optional attachment texts
         """
         prompt_parts = [
             "Bitte extrahiere Informationen aus dieser E-Mail:\n",
@@ -278,6 +289,15 @@ Extrahiere die folgenden Informationen aus der E-Mail:
             prompt_parts.append(f"**Betreff**: {subject}")
 
         prompt_parts.append(f"\n**E-Mail Inhalt**:\n{email_body}")
+
+        # Add attachment texts if available
+        if attachment_texts:
+            prompt_parts.append("\n\n**Anhänge (extrahierter Text)**:")
+            for i, text in enumerate(attachment_texts, 1):
+                # Limit each attachment text to avoid token explosion
+                truncated = text[:3000] if len(text) > 3000 else text
+                prompt_parts.append(f"\n--- Anhang {i} ---\n{truncated}")
+
         prompt_parts.append("\n\nGib die Antwort als JSON zurück (nur JSON, keine zusätzlichen Erklärungen):")
 
         return "\n".join(prompt_parts)

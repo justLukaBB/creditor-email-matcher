@@ -466,10 +466,14 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
         else:
             extractor = openai_extractor
 
+        # Get attachment texts from extraction result for entity extraction
+        attachment_texts = extraction_result.get("attachment_texts", [])
+
         extracted_entities = extractor.extract_entities(
             email_body=parsed["cleaned_body"],
             from_email=email.from_email,
-            subject=email.subject
+            subject=email.subject,
+            attachment_texts=attachment_texts if attachment_texts else None
         )
 
         # Merge entity extraction results with Phase 3 extraction
