@@ -37,6 +37,10 @@ class CreditorInquiry(Base):
     zendesk_ticket_id = Column(String(50), nullable=False, index=True)
     zendesk_side_conversation_id = Column(String(50), nullable=True, index=True)
 
+    # Resend Email Provider (alternative to Zendesk Side Conversations)
+    resend_email_id = Column(String(100), nullable=True, index=True)
+    email_provider = Column(String(20), default="zendesk")  # 'zendesk' or 'resend'
+
     # Email Content (for reference)
     email_subject = Column(String(500), nullable=True)
     email_body = Column(Text, nullable=True)
