@@ -131,12 +131,26 @@ class FuzzyMatchStrategy(MatchingStrategy):
             extracted_refs
         )
 
-        # CONTEXT.MD: Both signals required for match
-        # If either is 0, heavily penalize overall score
-        if name_score == 0 or ref_score == 0:
+        # Matching logic:
+        # 1. If name_score is 0, no match possible
+        # 2. If name_score is very high (>= 0.85), allow name-only matching
+        #    (creditor's reference number often not known at inquiry creation)
+        # 3. Otherwise, use weighted average requiring both signals
+        if name_score == 0:
+            total_score = 0.0
+        elif name_score >= 0.85 and ref_score == 0:
+            # Strong name match without reference - allow with reduced confidence
+            # This handles cases where creditor's Aktenzeichen wasn't known initially
+            total_score = name_score * 0.7  # Penalty for missing reference
+            logger.debug("name_only_match_allowed",
+                        name_score=name_score,
+                        ref_score=ref_score,
+                        total_score=total_score)
+        elif ref_score == 0:
+            # Weak name match without reference - no match
             total_score = 0.0
         else:
-            # Weighted average
+            # Both signals available - weighted average
             name_weight = weights.get("client_name", 0.4)
             ref_weight = weights.get("reference_number", 0.6)
             total_score = (name_score * name_weight) + (ref_score * ref_weight)
