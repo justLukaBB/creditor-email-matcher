@@ -477,8 +477,23 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
         # Entity extraction provides: is_creditor_reply, reference_numbers, summary
         # Priority: Phase 3 debt_amount (processes attachments), entity extraction for intent
         current_extracted_data = email.extracted_data or {}
+
+        # Override is_creditor_reply if pipeline extracted a debt amount AND intent is debt_statement
+        # This handles cases where attachment contains the creditor data but email body is sparse
+        pipeline_has_amount = current_extracted_data.get("debt_amount") is not None
+        intent_is_debt = intent_result.get("intent") == "debt_statement"
+
+        if pipeline_has_amount and intent_is_debt:
+            is_creditor_reply = True
+            logger.info("is_creditor_override",
+                       extra={"email_id": email_id,
+                              "reason": "pipeline_extracted_amount_with_debt_intent",
+                              "amount": current_extracted_data.get("debt_amount")})
+        else:
+            is_creditor_reply = extracted_entities.is_creditor_reply
+
         email.extracted_data = {
-            "is_creditor_reply": extracted_entities.is_creditor_reply,
+            "is_creditor_reply": is_creditor_reply,
             "client_name": current_extracted_data.get("client_name") or extracted_entities.client_name,
             "creditor_name": current_extracted_data.get("creditor_name") or extracted_entities.creditor_name,
             "debt_amount": current_extracted_data.get("debt_amount") or extracted_entities.debt_amount,
@@ -491,7 +506,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
         db.commit()
 
         # Step 5: Check if this is actually a creditor reply
-        if not extracted_entities.is_creditor_reply:
+        if not is_creditor_reply:
             logger.info("not_creditor_reply",
                        extra={"email_id": email_id})
             email.processing_status = "not_creditor_reply"
