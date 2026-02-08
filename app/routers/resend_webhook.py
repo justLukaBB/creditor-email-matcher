@@ -3,10 +3,11 @@ Resend Inbound Webhook Router
 Handles incoming emails received via Resend
 
 Flow:
-1. Receive webhook from Resend (inbound webhooks include full email content)
+1. Receive webhook from Resend (metadata only)
 2. Verify Svix signature
-3. Save to PostgreSQL with RECEIVED status
-4. Enqueue Dramatiq job for async processing
+3. Fetch full email content via Resend API
+4. Save to PostgreSQL with RECEIVED status
+5. Enqueue Dramatiq job for async processing
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
@@ -16,6 +17,7 @@ from typing import Optional, List
 import hmac
 import hashlib
 import base64
+import httpx
 import structlog
 from pydantic import BaseModel, Field
 from asgi_correlation_id.context import correlation_id
@@ -26,6 +28,51 @@ from app.models.webhook_schemas import WebhookResponse
 from app.models import IncomingEmail
 
 logger = structlog.get_logger()
+
+
+async def fetch_email_content_from_resend(email_id: str) -> dict:
+    """
+    Fetch full email content from Resend API.
+
+    Inbound webhooks only contain metadata - we need to fetch
+    the actual email body via the API.
+
+    Returns dict with 'html' and 'text' fields.
+    """
+    if not settings.resend_api_key:
+        logger.warning("resend_api_key_not_configured")
+        return {"html": None, "text": None}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://api.resend.com/emails/{email_id}",
+                headers={
+                    "Authorization": f"Bearer {settings.resend_api_key}",
+                    "Content-Type": "application/json"
+                },
+                timeout=10.0
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                logger.info("resend_email_content_fetched", email_id=email_id)
+                return {
+                    "html": data.get("html"),
+                    "text": data.get("text")
+                }
+            else:
+                logger.warning(
+                    "resend_email_fetch_failed",
+                    email_id=email_id,
+                    status=response.status_code,
+                    response=response.text[:200]
+                )
+                return {"html": None, "text": None}
+
+    except Exception as e:
+        logger.error("resend_email_fetch_error", email_id=email_id, error=str(e))
+        return {"html": None, "text": None}
 
 router = APIRouter(prefix="/api/v1/resend", tags=["resend-webhook"])
 
@@ -213,16 +260,26 @@ async def receive_resend_webhook(
         from_name = parts[0].strip().strip('"')
         from_email = parts[1].rstrip('>')
 
+    # Step 6b: Fetch full email content from Resend API
+    # Inbound webhooks only contain metadata, not the email body
+    email_html = email_data.html
+    email_text = email_data.text
+
+    if not email_html and not email_text:
+        logger.info("fetching_email_content_from_resend_api", email_id=email_data.email_id)
+        content = await fetch_email_content_from_resend(email_data.email_id)
+        email_html = content.get("html")
+        email_text = content.get("text")
+
     # Step 7: Store incoming email with RECEIVED status
-    # Note: Resend inbound webhooks include html/text directly in payload
     incoming_email = IncomingEmail(
         zendesk_ticket_id=email_data.message_id or email_data.email_id,  # Use message_id as reference
         zendesk_webhook_id=email_data.email_id,  # Resend email ID for dedup
         from_email=from_email.strip(),
         from_name=from_name,
         subject=email_data.subject,
-        raw_body_html=email_data.html,
-        raw_body_text=email_data.text,
+        raw_body_html=email_html,
+        raw_body_text=email_text,
         attachment_urls=[
             {"id": att.id, "filename": att.filename, "content_type": att.content_type}
             for att in (email_data.attachments or [])
