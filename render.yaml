@@ -1,0 +1,25 @@
+services:
+  # Web Service (API)
+  - type: web
+    name: creditor-email-matcher
+    runtime: python
+    region: frankfurt
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13"
+
+  # Background Worker (Dramatiq)
+  - type: worker
+    name: creditor-email-worker
+    runtime: python
+    region: frankfurt
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m dramatiq app.actors --processes 1 --threads 2
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13"
