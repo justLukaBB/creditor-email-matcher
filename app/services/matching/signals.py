@@ -11,6 +11,9 @@ Design decisions:
 
 from typing import Optional
 from rapidfuzz import fuzz, utils
+import structlog
+
+logger = structlog.get_logger(__name__)
 
 
 def score_client_name(
@@ -77,6 +80,15 @@ def score_client_name(
     # Return best score across all algorithms
     best_score = max(scores.values())
     best_algorithm = max(scores, key=scores.get)
+
+    # Log detailed matching info for debugging
+    logger.debug("client_name_score_details",
+                inquiry_name=inquiry_name,
+                extracted_name=extracted_name,
+                compare_name=compare_name,
+                best_score=best_score,
+                best_algorithm=best_algorithm,
+                all_scores=scores)
 
     return best_score, {
         "algorithm_used": best_algorithm,
