@@ -71,6 +71,10 @@ class Settings(BaseSettings):
     sentry_dsn: Optional[str] = None  # Sentry project DSN
     sentry_environment: Optional[str] = None  # Defaults to environment setting
 
+    # Resend Inbound Email
+    resend_api_key: Optional[str] = None  # Resend API key for fetching email content
+    resend_webhook_secret: Optional[str] = None  # Svix signing secret for webhook verification
+
     class Config:
         env_file = ".env"
         case_sensitive = False
