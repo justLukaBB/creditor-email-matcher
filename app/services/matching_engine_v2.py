@@ -233,11 +233,55 @@ class MatchingEngineV2:
 
         CONTEXT.MD: Only consider pairs where we sent an inquiry in the last 30 days.
         This is the key optimization that narrows the search space.
+
+        Priority matching:
+        1. Exact email match (from_email == creditor_email)
+        2. Domain match (same domain)
+        3. All other inquiries in time window (fallback)
         """
         lookback_date = received_at - timedelta(days=self.lookback_days)
 
-        # Query inquiries within window
-        candidates = self.db.query(CreditorInquiry).filter(
+        # Extract domain from sender email
+        sender_domain = from_email.split('@')[-1].lower() if '@' in from_email else None
+
+        # First try: Exact email match
+        exact_matches = self.db.query(CreditorInquiry).filter(
+            and_(
+                CreditorInquiry.sent_at >= lookback_date,
+                CreditorInquiry.sent_at <= received_at,
+                CreditorInquiry.creditor_email == from_email
+            )
+        ).order_by(
+            CreditorInquiry.sent_at.desc()
+        ).all()
+
+        if exact_matches:
+            logger.debug("exact_email_match_found",
+                        from_email=from_email,
+                        count=len(exact_matches))
+            return exact_matches
+
+        # Second try: Domain match (same company, different email)
+        if sender_domain:
+            domain_matches = self.db.query(CreditorInquiry).filter(
+                and_(
+                    CreditorInquiry.sent_at >= lookback_date,
+                    CreditorInquiry.sent_at <= received_at,
+                    CreditorInquiry.creditor_email.ilike(f'%@{sender_domain}')
+                )
+            ).order_by(
+                CreditorInquiry.sent_at.desc()
+            ).all()
+
+            if domain_matches:
+                logger.debug("domain_match_found",
+                            from_email=from_email,
+                            domain=sender_domain,
+                            count=len(domain_matches))
+                return domain_matches
+
+        # Fallback: All inquiries in time window (for manual review scenarios)
+        all_candidates = self.db.query(CreditorInquiry).filter(
             and_(
                 CreditorInquiry.sent_at >= lookback_date,
                 CreditorInquiry.sent_at <= received_at,
@@ -246,7 +290,11 @@ class MatchingEngineV2:
             CreditorInquiry.sent_at.desc()
         ).all()
 
-        return candidates
+        logger.debug("fallback_to_all_candidates",
+                    from_email=from_email,
+                    count=len(all_candidates))
+
+        return all_candidates
 
     def _decide_match(
         self,
