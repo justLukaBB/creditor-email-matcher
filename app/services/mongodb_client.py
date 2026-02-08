@@ -135,20 +135,35 @@ class MongoDBService:
                     first_name, last_name = (name_parts[0], name_parts[1]) if len(name_parts) == 2 else (name_to_parse, "")
 
                 if first_name and last_name:
+                    # Try exact match first (handles umlauts correctly)
                     client = clients_collection.find_one({
-                        'firstName': {'$regex': f'^{first_name}$', '$options': 'i'},
-                        'lastName': {'$regex': f'^{last_name}$', '$options': 'i'}
+                        'firstName': first_name,
+                        'lastName': last_name
                     })
+
+                    # If not found, try case-insensitive with collation (works with umlauts)
+                    if not client:
+                        client = clients_collection.find_one(
+                            {
+                                'firstName': first_name,
+                                'lastName': last_name
+                            },
+                            collation={'locale': 'de', 'strength': 2}  # Case-insensitive for German
+                        )
+
                     if client:
                         logger.info("client_found", method="name", client_name=client_name)
                 else:
-                    # Try full name match in either field
-                    client = clients_collection.find_one({
-                        '$or': [
-                            {'firstName': {'$regex': client_name, '$options': 'i'}},
-                            {'lastName': {'$regex': client_name, '$options': 'i'}}
-                        ]
-                    })
+                    # Try full name match in either field using collation for umlauts
+                    client = clients_collection.find_one(
+                        {
+                            '$or': [
+                                {'firstName': client_name},
+                                {'lastName': client_name}
+                            ]
+                        },
+                        collation={'locale': 'de', 'strength': 2}
+                    )
                     if client:
                         logger.info("client_found", method="partial_name", client_name=client_name)
 
@@ -346,16 +361,20 @@ class MongoDBService:
         try:
             clients_collection = self.db['clients']
 
-            # Case-insensitive search with circuit breaker
+            # Case-insensitive search with collation (works with umlauts)
             breaker = get_mongodb_breaker()
             try:
+                # Try exact match first, then with German collation
                 client = breaker.call(
                     clients_collection.find_one,
-                    {
-                        'firstName': {'$regex': f'^{first_name}$', '$options': 'i'},
-                        'lastName': {'$regex': f'^{last_name}$', '$options': 'i'}
-                    }
+                    {'firstName': first_name, 'lastName': last_name}
                 )
+                if not client:
+                    client = breaker.call(
+                        clients_collection.find_one,
+                        {'firstName': first_name, 'lastName': last_name},
+                        collation={'locale': 'de', 'strength': 2}
+                    )
             except CircuitBreakerError:
                 logger.error("mongodb_circuit_open", operation="get_client_by_name")
                 raise
