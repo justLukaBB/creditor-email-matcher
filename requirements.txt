@@ -33,6 +33,9 @@ rapidfuzz>=3.6.0
 # Text Processing
 bleach>=6.1.0
 
+# Templating
+jinja2>=3.1.0
+
 # Structured Logging (Phase 9 - JSON + Correlation ID)
 structlog>=25.1.0
 python-json-logger>=2.0.7
