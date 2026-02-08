@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '20260208_extend_ticket_id'
-down_revision = '20260208_add_resend_email_fields'
+down_revision = '20260208_resend_fields'
 branch_labels = None
 depends_on = None
 
