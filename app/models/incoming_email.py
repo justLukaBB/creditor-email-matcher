@@ -21,8 +21,8 @@ class IncomingEmail(Base):
     # Primary Key
     id = Column(Integer, primary_key=True, index=True)
 
-    # Zendesk Information
-    zendesk_ticket_id = Column(String(50), nullable=False, index=True)
+    # Email Reference (originally Zendesk, now also Resend)
+    zendesk_ticket_id = Column(String(255), nullable=False, index=True)  # Email message_id or reference
     zendesk_webhook_id = Column(String(100), nullable=True, unique=True)  # For deduplication
 
     # Email Metadata
