@@ -3,18 +3,16 @@ Resend Inbound Webhook Router
 Handles incoming emails received via Resend
 
 Flow:
-1. Receive webhook from Resend (contains metadata only, no body)
+1. Receive webhook from Resend (inbound webhooks include full email content)
 2. Verify Svix signature
-3. Fetch full email content via Resend API
-4. Save to PostgreSQL with RECEIVED status
-5. Enqueue Dramatiq job for async processing
+3. Save to PostgreSQL with RECEIVED status
+4. Enqueue Dramatiq job for async processing
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Header, Request
 from sqlalchemy.orm import Session
 from datetime import datetime
 from typing import Optional, List
-import httpx
 import hmac
 import hashlib
 import base64
@@ -44,7 +42,7 @@ class ResendAttachment(BaseModel):
 
 
 class ResendEmailData(BaseModel):
-    """Email data from Resend webhook"""
+    """Email data from Resend inbound webhook - includes full email content"""
     email_id: str
     created_at: str
     from_: str = Field(..., alias="from")
@@ -53,6 +51,8 @@ class ResendEmailData(BaseModel):
     bcc: Optional[List[str]] = []
     subject: Optional[str] = None
     message_id: Optional[str] = None
+    html: Optional[str] = None  # HTML body (included in inbound webhook)
+    text: Optional[str] = None  # Plain text body (included in inbound webhook)
     attachments: Optional[List[ResendAttachment]] = []
 
     class Config:
@@ -116,43 +116,6 @@ def verify_svix_signature(
     except Exception as e:
         logger.error("svix_signature_verification_error", error=str(e))
         return False
-
-
-async def fetch_email_content(email_id: str) -> dict:
-    """
-    Fetch full email content from Resend API.
-
-    The webhook only contains metadata, so we need to call the API
-    to get the actual email body (html/text).
-    """
-    if not settings.resend_api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="RESEND_API_KEY not configured"
-        )
-
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"https://api.resend.com/emails/{email_id}",
-            headers={
-                "Authorization": f"Bearer {settings.resend_api_key}"
-            },
-            timeout=30.0
-        )
-
-        if response.status_code != 200:
-            logger.error(
-                "resend_api_error",
-                email_id=email_id,
-                status_code=response.status_code,
-                response=response.text
-            )
-            raise HTTPException(
-                status_code=502,
-                detail=f"Failed to fetch email from Resend API: {response.status_code}"
-            )
-
-        return response.json()
 
 
 @router.post("/webhook", response_model=WebhookResponse)
@@ -233,10 +196,7 @@ async def receive_resend_webhook(
             email_id=existing.id
         )
 
-    # Step 5: Fetch full email content from Resend API
-    full_email = await fetch_email_content(email_data.email_id)
-
-    # Step 6: Parse received_at timestamp
+    # Step 5: Parse received_at timestamp
     received_at = datetime.utcnow()
     try:
         from dateutil import parser as date_parser
@@ -244,7 +204,7 @@ async def receive_resend_webhook(
     except Exception as e:
         logger.warning("created_at_parse_failed", error=str(e))
 
-    # Step 7: Extract sender email from "Name <email>" format
+    # Step 6: Extract sender email from "Name <email>" format
     from_email = email_data.from_
     from_name = None
     if '<' in from_email and '>' in from_email:
@@ -253,15 +213,16 @@ async def receive_resend_webhook(
         from_name = parts[0].strip().strip('"')
         from_email = parts[1].rstrip('>')
 
-    # Step 8: Store incoming email with RECEIVED status
+    # Step 7: Store incoming email with RECEIVED status
+    # Note: Resend inbound webhooks include html/text directly in payload
     incoming_email = IncomingEmail(
         zendesk_ticket_id=email_data.message_id or email_data.email_id,  # Use message_id as reference
         zendesk_webhook_id=email_data.email_id,  # Resend email ID for dedup
         from_email=from_email.strip(),
         from_name=from_name,
         subject=email_data.subject,
-        raw_body_html=full_email.get("html"),
-        raw_body_text=full_email.get("text"),
+        raw_body_html=email_data.html,
+        raw_body_text=email_data.text,
         attachment_urls=[
             {"id": att.id, "filename": att.filename, "content_type": att.content_type}
             for att in (email_data.attachments or [])
@@ -277,11 +238,11 @@ async def receive_resend_webhook(
                email_id=incoming_email.id,
                resend_id=email_data.email_id)
 
-    # Step 9: Transition to QUEUED status
+    # Step 8: Transition to QUEUED status
     incoming_email.processing_status = "queued"
     db.commit()
 
-    # Step 10: Enqueue Dramatiq job for async processing
+    # Step 9: Enqueue Dramatiq job for async processing
     current_correlation_id = correlation_id.get()
     from app.actors.email_processor import process_email
     process_email.send(email_id=incoming_email.id, correlation_id=current_correlation_id)
