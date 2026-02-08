@@ -84,6 +84,61 @@ async def fetch_email_content_from_resend(email_id: str) -> dict:
         logger.error("resend_email_fetch_error", email_id=email_id, error=str(e))
         return {"html": None, "text": None}
 
+
+async def fetch_attachment_download_url(email_id: str, attachment_id: str) -> Optional[str]:
+    """
+    Fetch attachment download URL from Resend Receiving API.
+
+    API: GET /emails/receiving/{email_id}/attachments/{attachment_id}
+
+    Returns the download_url for the attachment, or None if fetch fails.
+    """
+    if not settings.resend_api_key:
+        logger.warning("resend_api_key_not_configured")
+        return None
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"https://api.resend.com/emails/receiving/{email_id}/attachments/{attachment_id}",
+                headers={
+                    "Authorization": f"Bearer {settings.resend_api_key}",
+                    "Content-Type": "application/json"
+                },
+                timeout=30.0
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                download_url = data.get("download_url")
+                logger.info(
+                    "resend_attachment_url_fetched",
+                    email_id=email_id,
+                    attachment_id=attachment_id,
+                    filename=data.get("filename"),
+                    size=data.get("size")
+                )
+                return download_url
+            else:
+                logger.warning(
+                    "resend_attachment_fetch_failed",
+                    email_id=email_id,
+                    attachment_id=attachment_id,
+                    status=response.status_code,
+                    response=response.text[:500]
+                )
+                return None
+
+    except Exception as e:
+        logger.error(
+            "resend_attachment_fetch_error",
+            email_id=email_id,
+            attachment_id=attachment_id,
+            error=str(e)
+        )
+        return None
+
+
 router = APIRouter(prefix="/api/v1/resend", tags=["resend-webhook"])
 
 

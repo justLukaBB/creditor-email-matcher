@@ -334,6 +334,20 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
         # Get attachment URLs from JSON column (populated by webhook in Phase 2)
         attachment_urls = email.attachment_urls or []
 
+        # Enrich attachments with download URLs from Resend API
+        if attachment_urls and email.zendesk_webhook_id:
+            from app.services.resend_client import enrich_attachments_with_download_urls
+            logger.info("enriching_attachments",
+                       count=len(attachment_urls),
+                       resend_email_id=email.zendesk_webhook_id)
+            attachment_urls = enrich_attachments_with_download_urls(
+                resend_email_id=email.zendesk_webhook_id,
+                attachments=attachment_urls
+            )
+            logger.info("attachments_enriched",
+                       count=len(attachment_urls),
+                       with_urls=sum(1 for a in attachment_urls if a.get("url")))
+
         # Call Agent 2 extraction with intent_result
         from app.actors.content_extractor import extract_content
         extraction_result = extract_content(
