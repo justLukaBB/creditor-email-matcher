@@ -32,7 +32,11 @@ target_metadata = Base.metadata
 
 # Override sqlalchemy.url from environment variable
 if settings.database_url:
-    config.set_main_option("sqlalchemy.url", settings.database_url)
+    # Convert postgresql:// to postgresql+psycopg:// for psycopg3 driver
+    db_url = settings.database_url
+    if db_url.startswith("postgresql://"):
+        db_url = db_url.replace("postgresql://", "postgresql+psycopg://", 1)
+    config.set_main_option("sqlalchemy.url", db_url)
 
 
 def run_migrations_offline() -> None:
