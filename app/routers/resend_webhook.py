@@ -187,7 +187,8 @@ async def receive_resend_webhook(
     # Get raw body for signature verification
     body = await request.body()
 
-    logger.info("resend_webhook_received", svix_id=svix_id)
+    # Log full payload for debugging
+    logger.info("resend_webhook_received", svix_id=svix_id, raw_payload=body.decode('utf-8')[:2000])
 
     # Step 1: Verify Svix signature (if configured)
     if settings.resend_webhook_secret:
