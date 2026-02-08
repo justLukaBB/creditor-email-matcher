@@ -32,10 +32,12 @@ logger = structlog.get_logger()
 
 async def fetch_email_content_from_resend(email_id: str) -> dict:
     """
-    Fetch full email content from Resend API.
+    Fetch full email content from Resend Receiving API.
 
     Inbound webhooks only contain metadata - we need to fetch
-    the actual email body via the API.
+    the actual email body via the Emails.Receiving API.
+
+    API: GET /emails/receiving/{email_id}
 
     Returns dict with 'html' and 'text' fields.
     """
@@ -45,8 +47,9 @@ async def fetch_email_content_from_resend(email_id: str) -> dict:
 
     try:
         async with httpx.AsyncClient() as client:
+            # Use the Receiving API endpoint for inbound emails
             response = await client.get(
-                f"https://api.resend.com/emails/{email_id}",
+                f"https://api.resend.com/emails/receiving/{email_id}",
                 headers={
                     "Authorization": f"Bearer {settings.resend_api_key}",
                     "Content-Type": "application/json"
@@ -56,17 +59,24 @@ async def fetch_email_content_from_resend(email_id: str) -> dict:
 
             if response.status_code == 200:
                 data = response.json()
-                logger.info("resend_email_content_fetched", email_id=email_id)
+                logger.info(
+                    "resend_email_content_fetched",
+                    email_id=email_id,
+                    has_html=bool(data.get("html")),
+                    has_text=bool(data.get("text")),
+                    has_body=bool(data.get("body"))
+                )
+                # Resend may return body as 'body', 'text', or 'html'
                 return {
                     "html": data.get("html"),
-                    "text": data.get("text")
+                    "text": data.get("text") or data.get("body")
                 }
             else:
                 logger.warning(
                     "resend_email_fetch_failed",
                     email_id=email_id,
                     status=response.status_code,
-                    response=response.text[:200]
+                    response=response.text[:500]
                 )
                 return {"html": None, "text": None}
 
