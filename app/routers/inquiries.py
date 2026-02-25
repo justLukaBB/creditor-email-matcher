@@ -94,11 +94,22 @@ async def create_inquiry(
         creditor_email=inquiry.creditor_email
     )
 
-    # Check for duplicates (same creditor email + client name + recent time)
+    # Check for duplicates using normalized name to catch format variants
+    # ("Mariana Machado" vs "Machado, Mariana")
+    normalized_input = normalize_name(inquiry.client_name)
     existing = db.query(CreditorInquiry).filter(
-        CreditorInquiry.creditor_email == inquiry.creditor_email,
-        CreditorInquiry.client_name == inquiry.client_name,
+        CreditorInquiry.creditor_email == inquiry.creditor_email.lower(),
+        CreditorInquiry.client_name_normalized == normalized_input,
     ).first()
+
+    # Also check reversed name order ("Last, First" -> "First Last")
+    if not existing and "," in inquiry.client_name:
+        parts = [p.strip() for p in inquiry.client_name.split(",", 1)]
+        reversed_name = normalize_name(f"{parts[1]} {parts[0]}")
+        existing = db.query(CreditorInquiry).filter(
+            CreditorInquiry.creditor_email == inquiry.creditor_email.lower(),
+            CreditorInquiry.client_name_normalized == reversed_name,
+        ).first()
 
     if existing and inquiry.resend_email_id:
         # Check if it's the same Resend email

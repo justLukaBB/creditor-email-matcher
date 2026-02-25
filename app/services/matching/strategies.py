@@ -141,7 +141,7 @@ class FuzzyMatchStrategy(MatchingStrategy):
         elif name_score >= 0.85 and ref_score == 0:
             # Strong name match without reference - allow with reduced confidence
             # This handles cases where creditor's Aktenzeichen wasn't known initially
-            total_score = name_score * 0.7  # Penalty for missing reference
+            total_score = name_score * 0.85  # Reduced penalty - domain match provides additional signal
             logger.debug("name_only_match_allowed",
                         name_score=name_score,
                         ref_score=ref_score,

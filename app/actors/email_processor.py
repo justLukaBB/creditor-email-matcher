@@ -687,7 +687,8 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 new_debt_amount=new_debt_amount,
                 response_text=final_extracted.get("summary"),
                 reference_numbers=reference_numbers,
-                idempotency_key=idempotency_key
+                idempotency_key=idempotency_key,
+                extraction_confidence=confidence_result.overall if confidence_result else None
             )
 
             # Commit PostgreSQL transaction (outbox message included atomically)
@@ -707,6 +708,23 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                                   "client_name": client_name,
                                   "creditor_name": creditor_name_or_email,
                                   "amount": new_debt_amount})
+
+                # Notify Mandanten Portal (fire-and-forget)
+                from app.services.portal_notifier import notify_creditor_response
+                notify_creditor_response(
+                    email_id=email_id,
+                    client_aktenzeichen=client_aktenzeichen,
+                    client_name=client_name,
+                    creditor_name=creditor_name_or_email,
+                    creditor_email=creditor_email,
+                    new_debt_amount=new_debt_amount,
+                    amount_source="creditor_response",
+                    extraction_confidence=confidence_result.overall if confidence_result else None,
+                    match_status="auto_matched",
+                    confidence_route=route.level.value if route else "unknown",
+                    needs_review=False,
+                    reference_numbers=reference_numbers,
+                )
 
                 # Apply confidence-based notification routing
                 if route.action == RoutingAction.AUTO_UPDATE:

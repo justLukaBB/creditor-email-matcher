@@ -50,7 +50,8 @@ class DualDatabaseWriter:
         new_debt_amount: float,
         response_text: Optional[str],
         reference_numbers: Optional[List[str]],
-        idempotency_key: str
+        idempotency_key: str,
+        extraction_confidence: Optional[float] = None
     ) -> dict:
         """
         Update creditor debt with saga pattern (PostgreSQL first, then MongoDB).
@@ -96,7 +97,8 @@ class DualDatabaseWriter:
             "creditor_name": creditor_name,
             "new_debt_amount": new_debt_amount,
             "response_text": response_text,
-            "reference_numbers": reference_numbers
+            "reference_numbers": reference_numbers,
+            "extraction_confidence": extraction_confidence
         }
 
         outbox_message = OutboxMessage(
@@ -192,7 +194,8 @@ class DualDatabaseWriter:
                 creditor_name=payload["creditor_name"],
                 new_debt_amount=payload["new_debt_amount"],
                 response_text=payload.get("response_text"),
-                reference_numbers=payload.get("reference_numbers")
+                reference_numbers=payload.get("reference_numbers"),
+                extraction_confidence=payload.get("extraction_confidence")
             )
 
             if success:

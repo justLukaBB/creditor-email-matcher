@@ -354,8 +354,34 @@ class MatchingEngineV2:
             )
 
         # Multiple candidates: calculate gap
+        # Deduplicate by creditor_email: if top-2 share the same creditor_email,
+        # they represent the same creditor (duplicate inquiries) — skip to the
+        # next *different* creditor for the gap calculation.
         second = candidates[1]
-        gap = top.total_score - second.total_score
+        top_email = (top.inquiry.creditor_email or "").lower()
+        second_email = (second.inquiry.creditor_email or "").lower()
+
+        if top_email and top_email == second_email:
+            # Find the next candidate with a different creditor_email
+            next_different = None
+            for c in candidates[2:]:
+                c_email = (c.inquiry.creditor_email or "").lower()
+                if c_email != top_email:
+                    next_different = c
+                    break
+
+            if next_different is not None:
+                gap = top.total_score - next_different.total_score
+                log.info("gap_dedup_applied",
+                        same_email=top_email,
+                        skipped_candidates=1,
+                        gap_against=next_different.inquiry.client_name)
+            else:
+                # All candidates are for the same creditor — treat as single candidate
+                gap = 1.0
+                log.info("gap_dedup_all_same_creditor", email=top_email)
+        else:
+            gap = top.total_score - second.total_score
 
         # Update explainability with gap
         top.scoring_details["gap"] = round(gap, 4)

@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     # Database
     database_url: Optional[str] = None
     mongodb_url: Optional[str] = None
-    mongodb_database: str = "mandanten_portal"  # Database name in MongoDB
+    mongodb_database: str = "test"  # Database name in MongoDB
 
     # Redis & Job Queue
     redis_url: Optional[str] = None
@@ -70,6 +70,10 @@ class Settings(BaseSettings):
     # Sentry Error Tracking (Phase 9)
     sentry_dsn: Optional[str] = None  # Sentry project DSN
     sentry_environment: Optional[str] = None  # Defaults to environment setting
+
+    # Mandanten Portal Webhook (notify portal after MongoDB write)
+    portal_webhook_url: Optional[str] = None  # e.g. https://portal.example.com/api/webhooks/matcher-response
+    portal_webhook_secret: Optional[str] = None  # HMAC-SHA256 signing secret
 
     # Resend Inbound Email
     resend_api_key: Optional[str] = None  # Resend API key for fetching email content

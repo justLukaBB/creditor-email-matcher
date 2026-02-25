@@ -82,7 +82,8 @@ class MongoDBService:
         creditor_name: str,
         new_debt_amount: float,
         response_text: Optional[str] = None,
-        reference_numbers: Optional[list] = None
+        reference_numbers: Optional[list] = None,
+        extraction_confidence: Optional[float] = None
     ) -> bool:
         """
         Update creditor's debt amount in MongoDB based on client and creditor identification
@@ -235,20 +236,26 @@ class MongoDBService:
                 return False
 
             # Step 3: Build update data
+            # NOTE: We set current_debt_amount (new from response), NOT claim_amount (original from document).
+            # claim_amount is the original debt from the Forderungsaufstellung and must never be overwritten.
+            idx = matched_creditor_index
             update_data = {
-                f'final_creditor_list.{matched_creditor_index}.claim_amount': new_debt_amount,
-                f'final_creditor_list.{matched_creditor_index}.creditor_response_amount': new_debt_amount,
-                f'final_creditor_list.{matched_creditor_index}.amount_source': 'creditor_response',
-                f'final_creditor_list.{matched_creditor_index}.response_received_at': datetime.utcnow(),
-                f'final_creditor_list.{matched_creditor_index}.contact_status': 'responded',
-                f'final_creditor_list.{matched_creditor_index}.last_contacted_at': datetime.utcnow()
+                f'final_creditor_list.{idx}.current_debt_amount': new_debt_amount,
+                f'final_creditor_list.{idx}.creditor_response_amount': new_debt_amount,
+                f'final_creditor_list.{idx}.amount_source': 'creditor_response',
+                f'final_creditor_list.{idx}.response_received_at': datetime.utcnow(),
+                f'final_creditor_list.{idx}.contact_status': 'responded',
+                f'final_creditor_list.{idx}.last_contacted_at': datetime.utcnow()
             }
 
+            if extraction_confidence is not None:
+                update_data[f'final_creditor_list.{idx}.extraction_confidence'] = extraction_confidence
+
             if response_text:
-                update_data[f'final_creditor_list.{matched_creditor_index}.creditor_response_text'] = response_text
+                update_data[f'final_creditor_list.{idx}.creditor_response_text'] = response_text
 
             if reference_numbers:
-                update_data[f'final_creditor_list.{matched_creditor_index}.response_reference_numbers'] = reference_numbers
+                update_data[f'final_creditor_list.{idx}.response_reference_numbers'] = reference_numbers
 
             # Step 4: Update MongoDB with circuit breaker
             breaker = get_mongodb_breaker()
