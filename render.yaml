@@ -10,7 +10,7 @@ services:
     healthCheckPath: /
     envVars:
       - key: PYTHON_VERSION
-        value: "3.13"
+        value: "3.13.0"
       - key: REDIS_URL
         fromService:
           type: redis
@@ -27,7 +27,7 @@ services:
     startCommand: python -m dramatiq app.actors --processes 1 --threads 2
     envVars:
       - key: PYTHON_VERSION
-        value: "3.13"
+        value: "3.13.0"
       - key: REDIS_URL
         fromService:
           type: redis
