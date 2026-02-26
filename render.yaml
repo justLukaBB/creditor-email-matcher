@@ -11,6 +11,11 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.13"
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: creditor-email-redis
+          property: connectionString
 
   # Background Worker (Dramatiq)
   - type: worker
@@ -23,3 +28,16 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.13"
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: creditor-email-redis
+          property: connectionString
+
+  # Render Redis (replaces Upstash)
+  - type: redis
+    name: creditor-email-redis
+    region: frankfurt
+    plan: starter
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
