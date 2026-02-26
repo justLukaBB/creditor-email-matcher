@@ -249,7 +249,7 @@ class ImageExtractor:
 
             # Call Claude Vision API
             message = self.claude_client.messages.create(
-                model="claude-sonnet-4-5-20250514",
+                model="claude-sonnet-4-5-20250929",
                 max_tokens=1024,
                 messages=[
                     {
@@ -297,7 +297,7 @@ class ImageExtractor:
                         email_id=self.email_id,
                         input_tokens=message.usage.input_tokens,
                         output_tokens=message.usage.output_tokens,
-                        model_name='claude-sonnet-4-5-20250514',
+                        model_name='claude-sonnet-4-5-20250929',
                         extraction_success=parsed_result.gesamtforderung is not None,
                         confidence_score=None,  # Image extraction doesn't have confidence score
                         manual_review_required=False,

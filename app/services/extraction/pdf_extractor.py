@@ -449,7 +449,7 @@ class PDFExtractor:
 
             # Call Claude Vision API
             message = self.claude_client.messages.create(
-                model="claude-sonnet-4-5-20250514",
+                model="claude-sonnet-4-5-20250929",
                 max_tokens=2048,
                 messages=[
                     {
@@ -500,7 +500,7 @@ class PDFExtractor:
                         email_id=self.email_id,
                         input_tokens=message.usage.input_tokens,
                         output_tokens=message.usage.output_tokens,
-                        model_name='claude-sonnet-4-5-20250514',
+                        model_name='claude-sonnet-4-5-20250929',
                         extraction_success=result.gesamtforderung is not None,
                         confidence_score=None,  # PDF extraction doesn't have confidence score
                         manual_review_required=False,
