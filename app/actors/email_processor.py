@@ -541,11 +541,15 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
         reference_numbers = final_extracted.get("reference_numbers", [])
 
         # Validate required fields for matching
-        if not client_name or not (creditor_name or creditor_email):
+        # Allow matching if we have client_name OR reference_numbers (Aktenzeichen)
+        has_matching_signal = bool(client_name) or bool(reference_numbers)
+        has_creditor = bool(creditor_name or creditor_email)
+        if not has_matching_signal or not has_creditor:
             logger.warning("missing_required_fields_for_matching",
                           extra={"email_id": email_id,
                                  "has_client": bool(client_name),
-                                 "has_creditor": bool(creditor_name or creditor_email)})
+                                 "has_reference": bool(reference_numbers),
+                                 "has_creditor": has_creditor})
             email.processing_status = "completed"
             email.match_status = "no_match"
             email.completed_at = datetime.utcnow()
