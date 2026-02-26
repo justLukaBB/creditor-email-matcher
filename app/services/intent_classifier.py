@@ -167,12 +167,12 @@ def classify_intent_with_llm(body: str, subject: str, email_id: int = None) -> I
             variables={'subject': subject, 'truncated_body': truncated_body},
             template_name='classification.email_intent'
         )
-        model_name = prompt_template.model_name or "claude-3-5-haiku-20241022"
+        model_name = prompt_template.model_name or "claude-haiku-4-5-20251001"
         temperature = prompt_template.temperature if prompt_template.temperature is not None else 0.0
         max_tokens = prompt_template.max_tokens or 100
     else:
         # Fallback to hardcoded prompt (current behavior)
-        model_name = "claude-3-5-haiku-20241022"
+        model_name = "claude-haiku-4-5-20251001"
         temperature = 0.0
         max_tokens = 100
         prompt = f"""Klassifiziere die E-Mail-Intent in eine der folgenden Kategorien:
