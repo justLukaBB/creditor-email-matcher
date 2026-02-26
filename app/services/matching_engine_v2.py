@@ -215,25 +215,6 @@ class MatchingEngineV2:
                     score=round(mc.total_score, 4),
                     confidence=mc.confidence_level)
 
-        # Step 4.5: Single-candidate email match override
-        # If there's exactly 1 candidate from an exact email match and scoring
-        # failed (e.g. no client_name or reference_number extracted), the email
-        # match itself is sufficient evidence for auto-matching.
-        if (len(match_candidates) == 1
-                and match_candidates[0].total_score == 0.0
-                and from_email.lower() == (match_candidates[0].inquiry.creditor_email or "").lower()):
-            top = match_candidates[0]
-            top.total_score = 0.90  # High confidence from exact email match
-            top.scoring_details["single_email_match_override"] = True
-            top.scoring_details["override_reason"] = (
-                "Single candidate with exact email match — no name/reference needed"
-            )
-            log.info("single_candidate_email_match_override",
-                    inquiry_id=top.inquiry.id,
-                    client_name=top.inquiry.client_name,
-                    original_score=0.0,
-                    override_score=0.90)
-
         # Step 5: Apply matching decision logic
         return self._decide_match(
             candidates=match_candidates,
