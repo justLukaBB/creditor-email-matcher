@@ -132,11 +132,19 @@ class FuzzyMatchStrategy(MatchingStrategy):
         )
 
         # Matching logic:
-        # 1. If name_score is 0, no match possible
-        # 2. If name_score is very high (>= 0.85), allow name-only matching
-        #    (creditor's reference number often not known at inquiry creation)
-        # 3. Otherwise, use weighted average requiring both signals
-        if name_score == 0:
+        # 1. Strong ref match without name → allow (creditor often doesn't mention Mandant)
+        # 2. Strong name match without ref → allow (AZ often not known at inquiry creation)
+        # 3. Both signals → weighted average
+        # 4. Neither signal → no match
+        if ref_score >= 0.85 and name_score == 0:
+            # Strong reference match without name - creditor replied with our AZ
+            # but didn't mention the client name (very common)
+            total_score = ref_score * 0.85
+            logger.debug("ref_only_match_allowed",
+                        name_score=name_score,
+                        ref_score=ref_score,
+                        total_score=total_score)
+        elif name_score == 0 and ref_score == 0:
             total_score = 0.0
         elif name_score >= 0.85 and ref_score == 0:
             # Strong name match without reference - allow with reduced confidence
