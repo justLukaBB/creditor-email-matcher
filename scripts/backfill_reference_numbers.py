@@ -23,7 +23,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 try:
-    from app.database import init_db, SessionLocal
+    import app.database as database
+    from app.database import init_db
     from app.models.creditor_inquiry import CreditorInquiry
     from app.services.mongodb_client import mongodb_service
 except ImportError as e:
@@ -88,7 +89,7 @@ def main():
     print("Connecting to PostgreSQL...")
     try:
         init_db()
-        if SessionLocal is None:
+        if database.SessionLocal is None:
             print("ERROR: PostgreSQL not configured (DATABASE_URL missing).")
             sys.exit(2)
     except Exception as e:
@@ -101,7 +102,7 @@ def main():
         sys.exit(2)
 
     # Query rows with missing reference_number
-    db = SessionLocal()
+    db = database.SessionLocal()
     try:
         rows = db.query(CreditorInquiry).filter(
             CreditorInquiry.reference_number.is_(None)
