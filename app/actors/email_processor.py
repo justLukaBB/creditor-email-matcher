@@ -652,6 +652,15 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
             matched_inquiry = matching_result.match.inquiry
             email.matched_inquiry_id = matched_inquiry.id
 
+            # Use matched inquiry's client_name as fallback if extraction returned None
+            # (creditor replies rarely mention the client name)
+            if not client_name and matched_inquiry.client_name:
+                client_name = matched_inquiry.client_name
+                logger.info("client_name_from_inquiry",
+                            extra={"email_id": email_id,
+                                   "client_name": client_name,
+                                   "inquiry_id": matched_inquiry.id})
+
             # Extract aktenzeichen from reference numbers
             # Accepts formats like: "476982_64928", "542900", "AZ-123456", "2007/255"
             import re

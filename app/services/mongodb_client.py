@@ -116,6 +116,15 @@ class MongoDBService:
                 if client:
                     logger.info("client_found", method="aktenzeichen", aktenzeichen=client_aktenzeichen)
 
+                # Handle slash/underscore mismatch: Node.js sanitizeAktenzeichen
+                # replaces "/" with "_", but Python extracts "2007/255" from emails
+                if not client and '/' in client_aktenzeichen:
+                    normalized_az = client_aktenzeichen.replace('/', '_')
+                    client = clients_collection.find_one({'aktenzeichen': normalized_az})
+                    if client:
+                        logger.info("client_found", method="aktenzeichen_normalized",
+                                    original=client_aktenzeichen, normalized=normalized_az)
+
             if not client and client_name:
                 # Try to split name into first and last
                 # Handle "LastName, FirstName" format (common in German documents)
@@ -342,6 +351,16 @@ class MongoDBService:
                     clients_collection.find_one,
                     {'aktenzeichen': aktenzeichen}
                 )
+                # Handle slash/underscore mismatch (sanitizeAktenzeichen in Node.js)
+                if not client and '/' in aktenzeichen:
+                    normalized = aktenzeichen.replace('/', '_')
+                    client = breaker.call(
+                        clients_collection.find_one,
+                        {'aktenzeichen': normalized}
+                    )
+                    if client:
+                        logger.info("client_found", method="aktenzeichen_normalized",
+                                    original=aktenzeichen, normalized=normalized)
             except CircuitBreakerError:
                 logger.error("mongodb_circuit_open", operation="get_client_by_aktenzeichen")
                 raise
