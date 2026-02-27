@@ -653,13 +653,13 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
             email.matched_inquiry_id = matched_inquiry.id
 
             # Extract aktenzeichen from reference numbers
-            # Accepts formats like: "476982_64928", "542900", "AZ-123456"
+            # Accepts formats like: "476982_64928", "542900", "AZ-123456", "2007/255"
             import re
             client_aktenzeichen = None
             if reference_numbers:
                 for ref in reference_numbers:
-                    # Match references with digits (optionally separated by underscores/hyphens)
-                    if re.match(r'^[\d_\-]+$', ref) and len(ref) >= 4:
+                    # Match references with digits (optionally separated by underscores, hyphens, or slashes)
+                    if re.match(r'^[\d_\-/]+$', ref) and len(ref) >= 4:
                         client_aktenzeichen = ref
                         break
 
