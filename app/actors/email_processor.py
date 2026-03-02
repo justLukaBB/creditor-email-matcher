@@ -679,13 +679,10 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
             from app.services.amount_update_guard import should_update_amount
 
             existing_amount = consolidation_result.get("existing_current_debt_amount")
-            extraction_confidence_float = _confidence_to_float(
-                extraction_result.get("confidence", "LOW")
-            )
             guard_ok, guard_reason = should_update_amount(
                 existing_amount=existing_amount,
                 new_amount=new_debt_amount,
-                confidence=extraction_confidence_float,
+                confidence=confidence_result.overall,
             )
 
             update_decision = "UPDATED" if guard_ok else "SKIPPED"
@@ -698,7 +695,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                            "match_confidence": matching_result.match.total_score,
                            "existing_amount": existing_amount,
                            "extracted_amount": new_debt_amount,
-                           "extraction_confidence": extraction_confidence_float,
+                           "overall_confidence": confidence_result.overall,
                            "update_decision": update_decision,
                            "skip_reason": guard_reason if not guard_ok else None,
                            "confidence_route": route.level.value,
