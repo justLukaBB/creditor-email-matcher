@@ -231,10 +231,12 @@ class ContentExtractionService:
     def _make_circuit_breaker_result(self) -> ConsolidatedExtractionResult:
         """Return result when circuit breaker is open."""
         return ConsolidatedExtractionResult(
-            gesamtforderung=100.0,  # Default amount
+            gesamtforderung=None,
             client_name=None,
             creditor_name=None,
             confidence="LOW",
+            extraction_reason="circuit_breaker_open",
+            extraction_method_final="none",
             sources_processed=0,
             sources_with_amount=0,
             total_tokens_used=0,

@@ -169,7 +169,8 @@ def consolidate_results(email_id: int) -> Dict[str, Any]:
                     logger.info(
                         "mongodb_existing_data_loaded",
                         email_id=email_id,
-                        existing_amount=existing_data["debt_amount"]
+                        existing_amount=existing_data["debt_amount"],
+                        existing_creditor_response_amount=matched_creditor.get("creditor_response_amount"),
                     )
         else:
             logger.warning(
@@ -211,6 +212,8 @@ def consolidate_results(email_id: int) -> Dict[str, Any]:
             )
 
         # Step 8: Build final checkpoint result
+        existing_current_debt_amount = existing_data.get("debt_amount") if existing_data else None
+
         final_result = {
             "final_amount": extracted_data["gesamtforderung"],
             "client_name": extracted_data.get("client_name"),
@@ -222,6 +225,7 @@ def consolidate_results(email_id: int) -> Dict[str, Any]:
             "validation_status": "passed" if not needs_review else "needs_review",
             "sources_processed": agent2_checkpoint.get("sources_processed", 0),
             "total_tokens_used": agent2_checkpoint.get("total_tokens_used", 0),
+            "existing_current_debt_amount": existing_current_debt_amount,
         }
 
         # Step 9: Save Agent 3 checkpoint

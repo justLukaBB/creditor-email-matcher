@@ -6,7 +6,7 @@ into a single ConsolidatedExtractionResult using business rules.
 
 Business Rules (USER DECISIONS - LOCKED):
 1. Email body + attachments: highest amount wins
-2. No amount found anywhere: default to 100 EUR
+2. No amount found anywhere: return None (guard prevents DB overwrite)
 3. Confidence: weakest link across all sources
 """
 
@@ -31,7 +31,7 @@ class ExtractionConsolidator:
 
     Applies business rules to produce a final extraction result:
     - Highest amount wins across all sources
-    - Default to 100 EUR if no amounts found
+    - None if no amounts found (guard prevents DB overwrite)
     - Final confidence is weakest link
 
     Usage:
@@ -47,20 +47,8 @@ class ExtractionConsolidator:
         print(f"Final amount: {final.gesamtforderung} EUR")
     """
 
-    def __init__(self, default_amount: float = 100.0):
-        """
-        Initialize consolidator.
-
-        Args:
-            default_amount: Default amount when no amounts found anywhere.
-                           USER DECISION: 100 EUR default.
-        """
-        self.default_amount = default_amount
-
-        logger.debug(
-            "extraction_consolidator_initialized",
-            default_amount=self.default_amount,
-        )
+    def __init__(self):
+        logger.debug("extraction_consolidator_initialized")
 
     def consolidate(
         self, source_results: List[SourceExtractionResult]
@@ -70,7 +58,7 @@ class ExtractionConsolidator:
 
         Business rules (USER DECISIONS):
         1. Highest amount wins when multiple sources have amounts
-        2. Default to 100 EUR if no amount found
+        2. No amount found: return None (guard prevents DB overwrite)
         3. Final confidence is weakest link
 
         Args:
@@ -85,10 +73,13 @@ class ExtractionConsolidator:
         if not source_results:
             log.warning("no_sources_to_consolidate")
             return ConsolidatedExtractionResult(
-                gesamtforderung=self.default_amount,
+                gesamtforderung=None,
                 client_name=None,
                 creditor_name=None,
                 confidence="LOW",
+                extraction_method_final="none",
+                extraction_reason="no_sources_provided",
+                raw_candidates=[],
                 sources_processed=0,
                 sources_with_amount=0,
                 total_tokens_used=0,
@@ -123,6 +114,9 @@ class ExtractionConsolidator:
                 all_creditor_names.append(result.creditor_name)
                 confidences.append(result.creditor_name.confidence)
 
+        # Collect raw candidate values for diagnostics
+        raw_candidates = [a.value for a in all_amounts]
+
         # Apply highest-amount-wins rule (USER DECISION)
         if all_amounts:
             # Deduplicate: amounts within 1 EUR are considered same
@@ -130,22 +124,32 @@ class ExtractionConsolidator:
             best_amount = max(unique_amounts, key=lambda x: x.value)
             final_amount = best_amount.value
 
+            # Determine extraction method based on source types
+            source_types = {a.source for a in all_amounts}
+            if any(s in source_types for s in ("pdf", "docx", "xlsx", "image")):
+                extraction_method_final = "ai_primary"
+            else:
+                extraction_method_final = "regex_fallback"
+
+            extraction_reason = "highest_amount_selected"
+
             log.info(
                 "highest_amount_wins",
                 final_amount=final_amount,
                 total_amounts_found=len(all_amounts),
                 unique_amounts=len(unique_amounts),
                 source=best_amount.source,
+                extraction_method_final=extraction_method_final,
             )
         else:
-            # USER DECISION: default to 100 EUR
-            final_amount = self.default_amount
-            confidences.append("LOW")  # Default amount = low confidence
+            final_amount = None
+            extraction_method_final = "none"
+            extraction_reason = "no_amounts_found_in_any_source"
+            confidences.append("LOW")
 
             log.info(
-                "default_amount_applied",
-                default_amount=self.default_amount,
-                reason="no_amounts_found",
+                "no_amount_found",
+                reason="no_amounts_found_in_any_source",
             )
 
         # Pick best names (prefer HIGH confidence, then longest name)
@@ -176,6 +180,9 @@ class ExtractionConsolidator:
             client_name=final_client_name,
             creditor_name=final_creditor_name,
             confidence=final_confidence,
+            extraction_method_final=extraction_method_final,
+            extraction_reason=extraction_reason,
+            raw_candidates=raw_candidates,
             sources_processed=len(source_results),
             sources_with_amount=len(all_amounts),
             total_tokens_used=total_tokens,

@@ -107,15 +107,28 @@ class ConsolidatedExtractionResult(BaseModel):
     Final merged result after processing all sources for an email.
 
     Consolidation rules (User Decisions):
-    - gesamtforderung: Highest amount wins across all sources, or 100 EUR default
+    - gesamtforderung: Highest amount wins across all sources, None if not found
     - confidence: Weakest link (lowest confidence from any used source)
     - Names: First non-null value found
     """
 
     model_config = ConfigDict(from_attributes=True)
 
-    gesamtforderung: float = Field(
-        description="Final claim amount (highest-wins or 100.0 EUR default)"
+    gesamtforderung: Optional[float] = Field(
+        default=None,
+        description="Final claim amount (highest-wins across sources, None if no amount found)"
+    )
+    extraction_method_final: Optional[str] = Field(
+        default=None,
+        description="How the final amount was determined: ai_primary, regex_fallback, or none"
+    )
+    extraction_reason: Optional[str] = Field(
+        default=None,
+        description="Why this extraction outcome occurred (e.g. no_amounts_found_in_any_source)"
+    )
+    raw_candidates: List[float] = Field(
+        default_factory=list,
+        description="All candidate amount values found across sources before deduplication"
     )
     client_name: Optional[str] = Field(
         default=None,
