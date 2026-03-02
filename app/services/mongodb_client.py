@@ -200,15 +200,40 @@ class MongoDBService:
 
                     # Strategy 2: Domain matching (same company, different email address)
                     # e.g., inkasso@sparkasse.de vs forderungsmanagement@sparkasse.de
+                    # IMPORTANT: Skip domain matching for freemail providers — gmail.com,
+                    # hotmail.com etc. are shared by millions of unrelated senders.
+                    FREEMAIL_DOMAINS = {
+                        "gmail.com", "googlemail.com",
+                        "hotmail.com", "hotmail.de", "outlook.com", "outlook.de", "live.com", "live.de", "msn.com",
+                        "yahoo.com", "yahoo.de",
+                        "gmx.de", "gmx.net", "gmx.at", "gmx.ch",
+                        "web.de",
+                        "t-online.de",
+                        "freenet.de",
+                        "posteo.de", "posteo.net",
+                        "mail.de", "email.de",
+                        "aol.com",
+                        "icloud.com", "me.com", "mac.com",
+                        "protonmail.com", "proton.me",
+                        "tutanota.com", "tuta.io",
+                        "arcor.de",
+                        "vodafone.de",
+                        "1und1.de",
+                    }
                     if not email_match and '@' in cred_email and '@' in search_email:
                         cred_domain = cred_email.split('@')[-1]
                         search_domain = search_email.split('@')[-1]
-                        if cred_domain == search_domain:
+                        if cred_domain == search_domain and cred_domain not in FREEMAIL_DOMAINS:
                             email_match = True
                             logger.info("domain_match",
                                        cred_email=cred_email,
                                        search_email=search_email,
                                        domain=cred_domain)
+                        elif cred_domain == search_domain and cred_domain in FREEMAIL_DOMAINS:
+                            logger.debug("domain_match_skipped_freemail",
+                                        cred_email=cred_email,
+                                        search_email=search_email,
+                                        domain=cred_domain)
 
                 # Name matching (fuzzy - check if words overlap)
                 if creditor_name and cred.get('sender_name'):
