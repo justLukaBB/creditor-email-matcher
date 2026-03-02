@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     portal_webhook_url: Optional[str] = None  # e.g. https://portal.example.com/api/webhooks/matcher-response
     portal_webhook_secret: Optional[str] = None  # HMAC-SHA256 signing secret
 
+    # Test Mode
+    test_mode: bool = False  # Skip creditor email matching in MongoDB — matches by name only
+
     # Resend Inbound Email
     resend_api_key: Optional[str] = None  # Resend API key for fetching email content
     resend_webhook_secret: Optional[str] = None  # Svix signing secret for webhook verification

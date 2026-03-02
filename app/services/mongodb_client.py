@@ -185,13 +185,19 @@ class MongoDBService:
             creditors = client.get('final_creditor_list', [])
             matched_creditor_index = None
 
+            from app.config import settings
             for idx, cred in enumerate(creditors):
                 # Match by email (primary) or name (fallback with fuzzy matching)
                 email_match = False
                 name_match = False
 
                 # Email matching (exact, contains, or domain match)
-                if creditor_email and cred.get('sender_email'):
+                # In test_mode, skip email matching entirely — match by name only
+                if settings.test_mode:
+                    logger.info("test_mode_email_match_skipped",
+                               creditor_email=creditor_email,
+                               cred_email=cred.get('sender_email'))
+                elif creditor_email and cred.get('sender_email'):
                     cred_email = cred.get('sender_email', '').lower().strip()
                     search_email = creditor_email.lower().strip()
 
