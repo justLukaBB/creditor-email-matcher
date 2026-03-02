@@ -250,29 +250,53 @@ class MongoDBService:
                                         domain=cred_domain)
 
                 # Name matching (fuzzy - check if words overlap)
-                if creditor_name and cred.get('sender_name'):
-                    cred_name = cred.get('sender_name', '').lower().strip()
+                # Check all name fields: sender_name, glaeubiger_name,
+                # glaeubigervertreter_name, actual_creditor — the 1. Anschreiben
+                # uses glaeubiger_name as primary display name, so responses
+                # often reference that name rather than sender_name.
+                if creditor_name:
                     search_name = creditor_name.lower().strip()
-
-                    # Extract significant words (length > 3) from both names
-                    cred_words = set(word for word in cred_name.split() if len(word) > 3)
                     search_words = set(word for word in search_name.split() if len(word) > 3)
 
-                    # Check if any significant words match
-                    if cred_words and search_words:
-                        common_words = cred_words & search_words
-                        if common_words:
-                            name_match = True
-                            logger.info("fuzzy_name_match", common_words=list(common_words))
+                    name_fields = [
+                        'sender_name',
+                        'glaeubiger_name',
+                        'glaeubigervertreter_name',
+                        'actual_creditor',
+                    ]
 
-                    # Also check if one name contains the other
-                    if not name_match:
-                        name_match = (search_name in cred_name) or (cred_name in search_name)
+                    for name_field in name_fields:
+                        if name_match:
+                            break
+                        field_value = cred.get(name_field)
+                        if not field_value:
+                            continue
+                        cred_name = field_value.lower().strip()
+                        cred_words = set(word for word in cred_name.split() if len(word) > 3)
+
+                        # Check if any significant words match
+                        if cred_words and search_words:
+                            common_words = cred_words & search_words
+                            if common_words:
+                                name_match = True
+                                logger.info("fuzzy_name_match",
+                                           matched_field=name_field,
+                                           common_words=list(common_words))
+
+                        # Also check if one name contains the other
+                        if not name_match:
+                            if (search_name in cred_name) or (cred_name in search_name):
+                                name_match = True
+                                logger.info("substring_name_match",
+                                           matched_field=name_field,
+                                           search_name=search_name,
+                                           cred_name=cred_name)
 
                 if email_match or name_match:
                     matched_creditor_index = idx
                     logger.info("creditor_matched",
-                               creditor_name=cred.get('sender_name'),
+                               sender_name=cred.get('sender_name'),
+                               glaeubiger_name=cred.get('glaeubiger_name'),
                                email_match=email_match,
                                name_match=name_match)
                     break
