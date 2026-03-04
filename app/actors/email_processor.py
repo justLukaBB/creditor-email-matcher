@@ -681,9 +681,12 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
             letter_type = getattr(matched_inquiry, 'letter_type', 'first') or 'first'
 
             # If matched inquiry is 'first' but a 'second' inquiry exists among
-            # candidates, prefer it — the creditor likely responds to the most
-            # recent letter sent.
-            if letter_type == 'first' and matching_result.candidates:
+            # candidates, prefer it — BUT only when intent suggests a settlement
+            # response (payment_plan). debt_statement emails are 1. Schreiben
+            # responses and must stay on the first-round path.
+            intent = intent_result.get("intent")
+            intent_suggests_second = intent in ("payment_plan", "settlement", "counter_offer")
+            if letter_type == 'first' and matching_result.candidates and intent_suggests_second:
                 for candidate in matching_result.candidates:
                     cand_lt = getattr(candidate.inquiry, 'letter_type', 'first') or 'first'
                     if cand_lt == 'second':
