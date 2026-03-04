@@ -181,15 +181,16 @@ def classify_intent_with_llm(body: str, subject: str, email_id: int = None) -> I
 2. payment_plan - Zahlungsplan-Vorschlag oder Bestätigung
 3. rejection - Ablehnung oder Widerspruch der Forderung
 4. inquiry - Frage die manuelle Antwort erfordert
-5. auto_reply - Abwesenheitsnotiz oder automatische Antwort
-6. spam - Marketing, unrelated content
+5. clarification_request - Rückfrage vom Gläubiger (z.B. korrektes Aktenzeichen, fehlende Informationen, Zuordnung nicht möglich)
+6. auto_reply - Abwesenheitsnotiz oder automatische Antwort
+7. spam - Marketing, unrelated content
 
 E-Mail:
 Betreff: {subject}
 Text: {truncated_body}
 
 Antworte nur mit JSON:
-{{"intent": "debt_statement|payment_plan|rejection|inquiry|auto_reply|spam", "confidence": 0.0-1.0}}"""
+{{"intent": "debt_statement|payment_plan|rejection|inquiry|clarification_request|auto_reply|spam", "confidence": 0.0-1.0}}"""
 
     start_time = time.time()
 

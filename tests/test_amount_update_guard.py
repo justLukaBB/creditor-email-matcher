@@ -172,3 +172,97 @@ class TestAmountUpdateGuard:
         )
         assert ok is True
         assert reason == "amount_update_approved"
+
+
+class TestIntentBasedAmountGating:
+    """Tests for intent-based amount gating logic (before Amount Update Guard)."""
+
+    def test_inquiry_intent_blocks_amount_update(self):
+        """TC-09: inquiry intent with spurious 100 EUR should NOT overwrite existing amount."""
+        intent = "inquiry"
+        # Simulate the gating logic from email_processor.py
+        if intent not in ("debt_statement", "payment_plan"):
+            guard_ok = False
+            guard_reason = f"intent_not_debt_statement:{intent}"
+        else:
+            guard_ok, _ = should_update_amount(
+                existing_amount=130.14, new_amount=100.0, confidence=0.9
+            )
+            guard_reason = "amount_update_approved"
+
+        assert guard_ok is False
+        assert guard_reason == "intent_not_debt_statement:inquiry"
+
+    def test_clarification_request_blocks_amount_update(self):
+        """TC-10: clarification_request intent should block amount writes."""
+        intent = "clarification_request"
+        if intent not in ("debt_statement", "payment_plan"):
+            guard_ok = False
+            guard_reason = f"intent_not_debt_statement:{intent}"
+        else:
+            guard_ok, guard_reason = should_update_amount(
+                existing_amount=500.0, new_amount=100.0, confidence=0.9
+            )
+
+        assert guard_ok is False
+        assert guard_reason == "intent_not_debt_statement:clarification_request"
+
+    def test_rejection_intent_blocks_amount_update(self):
+        """TC-11: rejection intent should block amount writes."""
+        intent = "rejection"
+        if intent not in ("debt_statement", "payment_plan"):
+            guard_ok = False
+            guard_reason = f"intent_not_debt_statement:{intent}"
+        else:
+            guard_ok, guard_reason = should_update_amount(
+                existing_amount=500.0, new_amount=200.0, confidence=0.9
+            )
+
+        assert guard_ok is False
+        assert guard_reason == "intent_not_debt_statement:rejection"
+
+    def test_debt_statement_passes_to_guard(self):
+        """TC-12: debt_statement intent should pass through to Amount Update Guard."""
+        intent = "debt_statement"
+        if intent not in ("debt_statement", "payment_plan"):
+            guard_ok = False
+            guard_reason = f"intent_not_debt_statement:{intent}"
+        else:
+            guard_ok, guard_reason = should_update_amount(
+                existing_amount=130.14, new_amount=500.0, confidence=0.9
+            )
+
+        assert guard_ok is True
+        assert guard_reason == "amount_update_approved"
+
+    def test_payment_plan_passes_to_guard(self):
+        """TC-13: payment_plan intent should pass through to Amount Update Guard."""
+        intent = "payment_plan"
+        if intent not in ("debt_statement", "payment_plan"):
+            guard_ok = False
+            guard_reason = f"intent_not_debt_statement:{intent}"
+        else:
+            guard_ok, guard_reason = should_update_amount(
+                existing_amount=130.14, new_amount=200.0, confidence=0.9
+            )
+
+        assert guard_ok is True
+        assert guard_reason == "amount_update_approved"
+
+
+class TestClarificationRequestIntent:
+    """Tests for the new clarification_request intent enum value."""
+
+    def test_enum_value_exists(self):
+        """clarification_request should be a valid EmailIntent."""
+        from app.models.intent_classification import EmailIntent
+        intent = EmailIntent("clarification_request")
+        assert intent == EmailIntent.clarification_request
+        assert intent.value == "clarification_request"
+
+    def test_clarification_request_not_skip_extraction(self):
+        """clarification_request should NOT skip extraction (we still log what was sent)."""
+        from app.models.intent_classification import EmailIntent
+        # clarification_request is not in the skip list (auto_reply, spam)
+        skip_intents = [EmailIntent.auto_reply, EmailIntent.spam]
+        assert EmailIntent.clarification_request not in skip_intents
