@@ -61,6 +61,7 @@ def notify_creditor_response(
     """
     from app.config import settings
 
+    logger.info("portal_webhook_check", extra={"url_configured": bool(settings.portal_webhook_url)})
     if not settings.portal_webhook_url:
         return  # Not configured — skip silently
 
