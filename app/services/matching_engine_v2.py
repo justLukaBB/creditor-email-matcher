@@ -203,8 +203,12 @@ class MatchingEngineV2:
             )
             match_candidates.append(match_candidate)
 
-        # Step 4: Sort by score (descending)
-        match_candidates.sort(key=lambda x: x.total_score, reverse=True)
+        # Step 4: Sort by score (descending), then by recency (newest first)
+        # Tiebreaker: prefer newest inquiry (2. Schreiben over 1. Schreiben)
+        match_candidates.sort(
+            key=lambda x: (x.total_score, x.inquiry.sent_at or datetime.min),
+            reverse=True
+        )
 
         # Log top candidates
         for i, mc in enumerate(match_candidates[:3], 1):

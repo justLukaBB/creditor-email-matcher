@@ -679,6 +679,28 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
             # If this inquiry is for a Schuldenbereinigungsplan, use settlement extraction
             # instead of the normal amount extraction path.
             letter_type = getattr(matched_inquiry, 'letter_type', 'first') or 'first'
+
+            # If matched inquiry is 'first' but a 'second' inquiry exists among
+            # candidates, prefer it — the creditor likely responds to the most
+            # recent letter sent.
+            if letter_type == 'first' and matching_result.candidates:
+                for candidate in matching_result.candidates:
+                    cand_lt = getattr(candidate.inquiry, 'letter_type', 'first') or 'first'
+                    if cand_lt == 'second':
+                        logger.info("letter_type_override_to_second",
+                                    extra={"email_id": email_id,
+                                           "original_inquiry_id": matched_inquiry.id,
+                                           "second_inquiry_id": candidate.inquiry.id})
+                        matched_inquiry = candidate.inquiry
+                        email.matched_inquiry_id = matched_inquiry.id
+                        letter_type = 'second'
+                        # Update client info from the second inquiry if available
+                        if not client_aktenzeichen and matched_inquiry.reference_number:
+                            client_aktenzeichen = matched_inquiry.reference_number
+                        if not client_name and matched_inquiry.client_name:
+                            client_name = matched_inquiry.client_name
+                        break
+
             if letter_type == 'second':
                 _process_second_round(
                     db=db,
