@@ -751,6 +751,25 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                                       "reason": guard_reason,
                                       "existing_amount": existing_amount,
                                       "new_amount": new_debt_amount})
+
+                    # Still notify portal even when amount update is skipped
+                    from app.services.portal_notifier import notify_creditor_response
+                    notify_creditor_response(
+                        email_id=email_id,
+                        client_aktenzeichen=client_aktenzeichen,
+                        client_name=client_name,
+                        creditor_name=creditor_name_or_email,
+                        creditor_email=creditor_email,
+                        new_debt_amount=new_debt_amount,
+                        amount_source="creditor_response",
+                        extraction_confidence=confidence_result.overall if confidence_result else None,
+                        match_status="auto_matched",
+                        confidence_route=route.level.value if route else "unknown",
+                        needs_review=True,
+                        reference_numbers=reference_numbers,
+                        email_subject=email.subject,
+                        email_body_preview=email.raw_body_text,
+                    )
                 else:
                     # Guard approved — proceed with dual write
                     idempotency_key = generate_idempotency_key(
