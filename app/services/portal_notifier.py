@@ -136,6 +136,11 @@ def notify_settlement_response(
     if not settings.portal_webhook_url:
         return
 
+    # Settlement uses a separate endpoint — derive from base URL
+    settlement_url = settings.portal_webhook_url.replace(
+        "/matcher-response", "/settlement-response"
+    )
+
     payload = {
         "event": "settlement_response_processed",
         "email_id": email_id,
@@ -167,7 +172,7 @@ def notify_settlement_response(
 
     try:
         client = _get_client()
-        resp = client.post(settings.portal_webhook_url, content=body, headers=headers)
+        resp = client.post(settlement_url, content=body, headers=headers)
         logger.info(
             "portal_settlement_webhook_sent",
             extra={"email_id": email_id, "status_code": resp.status_code, "decision": settlement_decision},
