@@ -675,168 +675,194 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
             # Use creditor email as fallback if name not extracted
             creditor_name_or_email = creditor_name or creditor_email
 
-            # --- Amount Update Guard ---
-            from app.services.amount_update_guard import should_update_amount
-
-            existing_amount = consolidation_result.get("existing_current_debt_amount")
-            guard_ok, guard_reason = should_update_amount(
-                existing_amount=existing_amount,
-                new_amount=new_debt_amount,
-                confidence=confidence_result.overall,
-            )
-
-            update_decision = "UPDATED" if guard_ok else "SKIPPED"
-
-            logger.info("email_processed",
-                       extra={
-                           "event": "email_processed",
-                           "email_id": email_id,
-                           "matched_creditor_id": matched_inquiry.id,
-                           "match_confidence": matching_result.match.total_score,
-                           "existing_amount": existing_amount,
-                           "extracted_amount": new_debt_amount,
-                           "overall_confidence": confidence_result.overall,
-                           "update_decision": update_decision,
-                           "skip_reason": guard_reason if not guard_ok else None,
-                           "confidence_route": route.level.value,
-                       })
-
-            if not guard_ok:
-                # Guard blocked the write — still mark email as processed
-                email.match_status = "auto_matched"
-                email.match_confidence = int(matching_result.match.total_score * 100)
-                logger.info("amount_update_skipped_by_guard",
-                           extra={"email_id": email_id,
-                                  "reason": guard_reason,
-                                  "existing_amount": existing_amount,
-                                  "new_amount": new_debt_amount})
-            else:
-                # Guard approved — proceed with dual write
-
-                # Generate idempotency key
-                idempotency_key = generate_idempotency_key(
-                    operation="creditor_debt_update",
-                    aggregate_id=str(email_id),
-                    payload={
-                        "client_name": client_name,
-                        "creditor_email": creditor_email,
-                        "amount": new_debt_amount
-                    }
-                )
-
-                # Create DualDatabaseWriter with current session
-                idempotency_svc = IdempotencyService(SessionLocal)
-                dual_writer = DualDatabaseWriter(db, idempotency_svc)
-
-                # Execute saga pattern: PG write + outbox (atomic)
-                result = dual_writer.update_creditor_debt(
+            # --- 2. Schreiben Branch ---
+            # If this inquiry is for a Schuldenbereinigungsplan, use settlement extraction
+            # instead of the normal amount extraction path.
+            letter_type = getattr(matched_inquiry, 'letter_type', 'first') or 'first'
+            if letter_type == 'second':
+                _process_second_round(
+                    db=db,
+                    email=email,
                     email_id=email_id,
+                    matched_inquiry=matched_inquiry,
+                    matching_result=matching_result,
                     client_name=client_name,
                     client_aktenzeichen=client_aktenzeichen,
                     creditor_email=creditor_email,
                     creditor_name=creditor_name_or_email,
-                    new_debt_amount=new_debt_amount,
-                    response_text=final_extracted.get("summary"),
-                    reference_numbers=reference_numbers,
-                    idempotency_key=idempotency_key,
-                    extraction_confidence=confidence_result.overall if confidence_result else None
+                    email_body=email_body,
+                    subject=email.subject,
+                    confidence_result=confidence_result,
+                    route=route,
                 )
+                # Skip the normal 1. Schreiben path below — jump to Step 7
+                # (processing completion is handled inside _process_second_round sets status,
+                # final commit + report happens after this if/else block)
+            else:
+                # --- 1. Schreiben: Intent-Based Amount Gating ---
+                # Only update debt amounts for debt_statement and payment_plan intents.
+                from app.services.amount_update_guard import should_update_amount
 
-                # Commit PostgreSQL transaction (outbox message included atomically)
-                db.commit()
+                intent = intent_result.get("intent")
+                if intent not in ("debt_statement", "payment_plan"):
+                    guard_ok = False
+                    guard_reason = f"intent_not_debt_statement:{intent}"
+                    logger.info("amount_update_blocked_by_intent",
+                                extra={"email_id": email_id, "intent": intent,
+                                       "extracted_amount": new_debt_amount})
+                else:
+                    # --- Amount Update Guard ---
+                    existing_amount = consolidation_result.get("existing_current_debt_amount")
+                    if existing_amount is None and matched_inquiry:
+                        existing_amount = getattr(matched_inquiry, 'debt_amount', None)
+                        if existing_amount is not None:
+                            logger.info("existing_amount_fallback_from_inquiry",
+                                        extra={"email_id": email_id,
+                                               "fallback_amount": existing_amount,
+                                               "inquiry_id": matched_inquiry.id})
 
-                # Attempt MongoDB write (post-commit, compensatable)
-                mongodb_success = False
-                if result.get("outbox_message_id"):
-                    mongodb_success = dual_writer.execute_mongodb_write(result["outbox_message_id"])
-
-                # Update match status based on MongoDB write result
-                if mongodb_success:
-                    email.match_status = "auto_matched"
-                    email.match_confidence = int(matching_result.match.total_score * 100)
-                    logger.info("mongodb_update_success",
-                               extra={"email_id": email_id,
-                                      "client_name": client_name,
-                                      "creditor_name": creditor_name_or_email,
-                                      "amount": new_debt_amount})
-
-                    # Notify Mandanten Portal (fire-and-forget)
-                    from app.services.portal_notifier import notify_creditor_response
-                    notify_creditor_response(
-                        email_id=email_id,
-                        client_aktenzeichen=client_aktenzeichen,
-                        client_name=client_name,
-                        creditor_name=creditor_name_or_email,
-                        creditor_email=creditor_email,
-                        new_debt_amount=new_debt_amount,
-                        amount_source="creditor_response",
-                        extraction_confidence=confidence_result.overall if confidence_result else None,
-                        match_status="auto_matched",
-                        confidence_route=route.level.value if route else "unknown",
-                        needs_review=False,
-                        reference_numbers=reference_numbers,
+                    guard_ok, guard_reason = should_update_amount(
+                        existing_amount=existing_amount,
+                        new_amount=new_debt_amount,
+                        confidence=confidence_result.overall,
                     )
 
-                    # Apply confidence-based notification routing
-                    if route.action == RoutingAction.AUTO_UPDATE:
-                        # HIGH confidence: auto-update with log only, NO notification
-                        logger.info("high_confidence_auto_update",
-                                   extra={"email_id": email_id,
-                                          "confidence": confidence_result.overall})
-                        # Do NOT send notification
+                update_decision = "UPDATED" if guard_ok else "SKIPPED"
 
-                    elif route.action == RoutingAction.UPDATE_AND_NOTIFY:
-                        # MEDIUM confidence: write to database, then notify review team
-                        logger.info("medium_confidence_update_and_notify",
-                                   extra={"email_id": email_id,
-                                          "confidence": confidence_result.overall})
+                logger.info("email_processed",
+                           extra={
+                               "event": "email_processed",
+                               "email_id": email_id,
+                               "matched_creditor_id": matched_inquiry.id,
+                               "match_confidence": matching_result.match.total_score,
+                               "existing_amount": existing_amount,
+                               "extracted_amount": new_debt_amount,
+                               "overall_confidence": confidence_result.overall,
+                               "update_decision": update_decision,
+                               "skip_reason": guard_reason if not guard_ok else None,
+                               "confidence_route": route.level.value,
+                           })
 
-                        # Send email notification for verification (REQ-OPS-05)
-                        email_notifier.send_debt_update_notification(
+                if not guard_ok:
+                    email.match_status = "auto_matched"
+                    email.match_confidence = int(matching_result.match.total_score * 100)
+                    logger.info("amount_update_skipped_by_guard",
+                               extra={"email_id": email_id,
+                                      "reason": guard_reason,
+                                      "existing_amount": existing_amount,
+                                      "new_amount": new_debt_amount})
+                else:
+                    # Guard approved — proceed with dual write
+                    idempotency_key = generate_idempotency_key(
+                        operation="creditor_debt_update",
+                        aggregate_id=str(email_id),
+                        payload={
+                            "client_name": client_name,
+                            "creditor_email": creditor_email,
+                            "amount": new_debt_amount
+                        }
+                    )
+
+                    idempotency_svc = IdempotencyService(SessionLocal)
+                    dual_writer = DualDatabaseWriter(db, idempotency_svc)
+
+                    result = dual_writer.update_creditor_debt(
+                        email_id=email_id,
+                        client_name=client_name,
+                        client_aktenzeichen=client_aktenzeichen,
+                        creditor_email=creditor_email,
+                        creditor_name=creditor_name_or_email,
+                        new_debt_amount=new_debt_amount,
+                        response_text=final_extracted.get("summary"),
+                        reference_numbers=reference_numbers,
+                        idempotency_key=idempotency_key,
+                        extraction_confidence=confidence_result.overall if confidence_result else None
+                    )
+
+                    db.commit()
+
+                    mongodb_success = False
+                    if result.get("outbox_message_id"):
+                        mongodb_success = dual_writer.execute_mongodb_write(result["outbox_message_id"])
+
+                    if mongodb_success:
+                        email.match_status = "auto_matched"
+                        email.match_confidence = int(matching_result.match.total_score * 100)
+                        logger.info("mongodb_update_success",
+                                   extra={"email_id": email_id,
+                                          "client_name": client_name,
+                                          "creditor_name": creditor_name_or_email,
+                                          "amount": new_debt_amount})
+
+                        from app.services.portal_notifier import notify_creditor_response
+                        notify_creditor_response(
+                            email_id=email_id,
+                            client_aktenzeichen=client_aktenzeichen,
                             client_name=client_name,
                             creditor_name=creditor_name_or_email,
                             creditor_email=creditor_email,
-                            old_debt_amount=existing_amount,
                             new_debt_amount=new_debt_amount,
-                            side_conversation_id="N/A",
-                            zendesk_ticket_id=email.zendesk_ticket_id,
+                            amount_source="creditor_response",
+                            extraction_confidence=confidence_result.overall if confidence_result else None,
+                            match_status="auto_matched",
+                            confidence_route=route.level.value if route else "unknown",
+                            needs_review=False,
                             reference_numbers=reference_numbers,
-                            confidence_score=matching_result.match.total_score
                         )
 
-                        # Add breadcrumb for notification
-                        add_breadcrumb("notification", "Auto-match notification sent")
+                        if route.action == RoutingAction.AUTO_UPDATE:
+                            logger.info("high_confidence_auto_update",
+                                       extra={"email_id": email_id,
+                                              "confidence": confidence_result.overall})
 
-                    elif route.action == RoutingAction.MANUAL_REVIEW:
-                        # LOW confidence: route to manual review queue even if auto-matched
-                        logger.info("low_confidence_manual_review_override",
-                                   extra={"email_id": email_id,
-                                          "confidence": confidence_result.overall})
+                        elif route.action == RoutingAction.UPDATE_AND_NOTIFY:
+                            logger.info("medium_confidence_update_and_notify",
+                                       extra={"email_id": email_id,
+                                              "confidence": confidence_result.overall})
 
-                        from app.services.validation import enqueue_for_review
-                        expiration_days = get_review_expiration_days(route.level)
+                            email_notifier.send_debt_update_notification(
+                                client_name=client_name,
+                                creditor_name=creditor_name_or_email,
+                                creditor_email=creditor_email,
+                                old_debt_amount=existing_amount,
+                                new_debt_amount=new_debt_amount,
+                                side_conversation_id="N/A",
+                                zendesk_ticket_id=email.zendesk_ticket_id,
+                                reference_numbers=reference_numbers,
+                                confidence_score=matching_result.match.total_score
+                            )
 
-                        enqueue_for_review(
-                            db,
-                            email_id,
-                            reason="low_confidence",
-                            details={
-                                "overall_confidence": confidence_result.overall,
-                                "extraction_confidence": confidence_result.extraction,
-                                "match_confidence": confidence_result.match,
-                                "weakest_link": confidence_result.weakest_link,
-                                "expiration_days": expiration_days,
-                                "match_status": "auto_matched_but_low_confidence"
-                            }
-                        )
-                        email.match_status = "needs_review"
+                            add_breadcrumb("notification", "Auto-match notification sent")
 
-                else:
-                    email.match_status = "no_match"
-                    logger.warning("mongodb_update_failed",
-                                  extra={"email_id": email_id,
-                                         "client_name": client_name,
-                                         "creditor_name": creditor_name_or_email})
+                        elif route.action == RoutingAction.MANUAL_REVIEW:
+                            logger.info("low_confidence_manual_review_override",
+                                       extra={"email_id": email_id,
+                                              "confidence": confidence_result.overall})
+
+                            from app.services.validation import enqueue_for_review
+                            expiration_days = get_review_expiration_days(route.level)
+
+                            enqueue_for_review(
+                                db,
+                                email_id,
+                                reason="low_confidence",
+                                details={
+                                    "overall_confidence": confidence_result.overall,
+                                    "extraction_confidence": confidence_result.extraction,
+                                    "match_confidence": confidence_result.match,
+                                    "weakest_link": confidence_result.weakest_link,
+                                    "expiration_days": expiration_days,
+                                    "match_status": "auto_matched_but_low_confidence"
+                                }
+                            )
+                            email.match_status = "needs_review"
+
+                    else:
+                        email.match_status = "no_match"
+                        logger.warning("mongodb_update_failed",
+                                      extra={"email_id": email_id,
+                                             "client_name": client_name,
+                                             "creditor_name": creditor_name_or_email})
 
         else:
             # AMBIGUOUS / BELOW_THRESHOLD / NO_RECENT_INQUIRY: Enqueue to ManualReviewQueue
@@ -945,3 +971,112 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                           "memory_before_mb": round(memory_before_mb, 2),
                           "memory_after_mb": round(memory_after_mb, 2),
                           "memory_freed_mb": round(memory_before_mb - memory_after_mb, 2)})
+
+
+def _process_second_round(
+    db,
+    email,
+    email_id: int,
+    matched_inquiry,
+    matching_result,
+    client_name: Optional[str],
+    client_aktenzeichen: Optional[str],
+    creditor_email: str,
+    creditor_name: str,
+    email_body: str,
+    subject: Optional[str],
+    confidence_result,
+    route,
+):
+    """
+    Process a 2. Schreiben (Schuldenbereinigungsplan) response.
+
+    Classifies the creditor's response as accepted/declined/counter_offer,
+    writes settlement data to MongoDB, and notifies the portal.
+    """
+    from app.services.settlement_extractor import settlement_extractor
+    from app.services.mongodb_client import mongodb_service
+    from app.services.portal_notifier import notify_settlement_response
+
+    logger.info("second_round_processing_start",
+               extra={"email_id": email_id,
+                      "inquiry_id": matched_inquiry.id,
+                      "creditor": creditor_name})
+
+    # Step 1: Settlement extraction (Claude Haiku)
+    settlement_result = settlement_extractor.extract(
+        email_body=email_body,
+        from_email=creditor_email,
+        subject=subject,
+    )
+
+    # Step 2: Confidence check
+    needs_review = (
+        settlement_result.confidence < 0.70
+        or settlement_result.settlement_decision == "no_clear_response"
+    )
+
+    logger.info("settlement_extraction_complete",
+               extra={"email_id": email_id,
+                      "decision": settlement_result.settlement_decision,
+                      "confidence": settlement_result.confidence,
+                      "counter_offer": settlement_result.counter_offer_amount,
+                      "needs_review": needs_review})
+
+    # Step 3: Store in agent_checkpoints (existing JSONB column)
+    checkpoints = email.agent_checkpoints or {}
+    checkpoints["settlement_extraction"] = {
+        "settlement_decision": settlement_result.settlement_decision,
+        "counter_offer_amount": settlement_result.counter_offer_amount,
+        "conditions": settlement_result.conditions,
+        "reference_to_proposal": settlement_result.reference_to_proposal,
+        "confidence": settlement_result.confidence,
+        "summary": settlement_result.summary,
+        "needs_review": needs_review,
+    }
+    email.agent_checkpoints = checkpoints
+
+    # Step 4: MongoDB write
+    mongodb_success = mongodb_service.update_settlement_response(
+        client_name=client_name,
+        client_aktenzeichen=client_aktenzeichen,
+        creditor_email=creditor_email,
+        creditor_name=creditor_name,
+        settlement_decision=settlement_result.settlement_decision,
+        response_summary=settlement_result.summary,
+        counter_offer_amount=settlement_result.counter_offer_amount,
+        conditions=settlement_result.conditions,
+        extraction_confidence=settlement_result.confidence,
+    )
+
+    # Step 5: Set match status
+    if mongodb_success:
+        email.match_status = "auto_matched"
+        email.match_confidence = int(matching_result.match.total_score * 100)
+    else:
+        email.match_status = "no_match"
+        logger.warning("settlement_mongodb_write_failed",
+                      extra={"email_id": email_id})
+
+    if needs_review:
+        email.match_status = "needs_review"
+
+    # Step 6: Portal notification
+    notify_settlement_response(
+        email_id=email_id,
+        client_aktenzeichen=client_aktenzeichen,
+        client_name=client_name,
+        creditor_name=creditor_name,
+        creditor_email=creditor_email,
+        settlement_decision=settlement_result.settlement_decision,
+        counter_offer_amount=settlement_result.counter_offer_amount,
+        conditions=settlement_result.conditions,
+        confidence=settlement_result.confidence,
+        match_status=email.match_status,
+        needs_review=needs_review,
+    )
+
+    logger.info("second_round_processing_complete",
+               extra={"email_id": email_id,
+                      "decision": settlement_result.settlement_decision,
+                      "match_status": email.match_status})

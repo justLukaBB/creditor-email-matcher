@@ -109,3 +109,63 @@ def notify_creditor_response(
             "portal_webhook_failed",
             extra={"email_id": email_id, "error": str(e)},
         )
+
+
+def notify_settlement_response(
+    email_id: int,
+    client_aktenzeichen: Optional[str],
+    client_name: Optional[str],
+    creditor_name: str,
+    creditor_email: str,
+    settlement_decision: str,
+    counter_offer_amount: Optional[float] = None,
+    conditions: Optional[str] = None,
+    confidence: Optional[float] = None,
+    match_status: str = "auto_matched",
+    needs_review: bool = False,
+) -> None:
+    """Send settlement response webhook to Mandanten Portal (fire-and-forget)."""
+    from app.config import settings
+
+    if not settings.portal_webhook_url:
+        return
+
+    payload = {
+        "event": "settlement_response_processed",
+        "email_id": email_id,
+        "client_aktenzeichen": client_aktenzeichen,
+        "client_name": client_name,
+        "creditor_name": creditor_name,
+        "creditor_email": creditor_email,
+        "settlement_decision": settlement_decision,
+        "counter_offer_amount": counter_offer_amount,
+        "conditions": conditions,
+        "extraction_confidence": confidence,
+        "match_status": match_status,
+        "needs_review": needs_review,
+        "processed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+    body = json.dumps(payload, default=str)
+    headers = {"Content-Type": "application/json"}
+
+    if settings.portal_webhook_secret:
+        sig = hmac.new(
+            settings.portal_webhook_secret.encode(),
+            body.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        headers["X-Webhook-Signature"] = sig
+
+    try:
+        client = _get_client()
+        resp = client.post(settings.portal_webhook_url, content=body, headers=headers)
+        logger.info(
+            "portal_settlement_webhook_sent",
+            extra={"email_id": email_id, "status_code": resp.status_code, "decision": settlement_decision},
+        )
+    except Exception as e:
+        logger.warning(
+            "portal_settlement_webhook_failed",
+            extra={"email_id": email_id, "error": str(e)},
+        )

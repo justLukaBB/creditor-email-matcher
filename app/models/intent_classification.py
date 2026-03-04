@@ -4,6 +4,7 @@ Defines email intent types and classification result structure for Agent 1
 """
 
 from enum import Enum
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -17,6 +18,7 @@ class EmailIntent(str, Enum):
     payment_plan = "payment_plan"  # Payment plan proposal/confirmation
     rejection = "rejection"  # Claim rejection or dispute
     inquiry = "inquiry"  # Question requiring manual response
+    clarification_request = "clarification_request"  # Creditor asking for correct Aktenzeichen, missing info
     auto_reply = "auto_reply"  # Out-of-office, vacation notice
     spam = "spam"  # Marketing, unrelated content
 
@@ -40,6 +42,28 @@ class IntentResult(BaseModel):
         default=False,
         description="True for auto_reply and spam intents (skip extraction agents)"
     )
+
+    class Config:
+        use_enum_values = True
+
+
+class SettlementDecision(str, Enum):
+    """Classification of creditor response to Schuldenbereinigungsplan (2. Schreiben)."""
+    accepted = "accepted"
+    declined = "declined"
+    counter_offer = "counter_offer"
+    inquiry = "inquiry"
+    no_clear_response = "no_clear_response"
+
+
+class SettlementExtractionResult(BaseModel):
+    """Result of settlement response analysis for 2. Schreiben replies."""
+    settlement_decision: SettlementDecision
+    counter_offer_amount: Optional[float] = None
+    conditions: Optional[str] = None
+    reference_to_proposal: Optional[str] = None
+    confidence: float = Field(ge=0.0, le=1.0)
+    summary: Optional[str] = None
 
     class Config:
         use_enum_values = True

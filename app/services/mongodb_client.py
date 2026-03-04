@@ -474,6 +474,155 @@ class MongoDBService:
             logger.error("get_client_by_name_error", error=str(e))
             return None
 
+    def update_settlement_response(
+        self,
+        client_name: str,
+        client_aktenzeichen: Optional[str],
+        creditor_email: str,
+        creditor_name: str,
+        settlement_decision: str,
+        response_summary: Optional[str] = None,
+        counter_offer_amount: Optional[float] = None,
+        conditions: Optional[str] = None,
+        extraction_confidence: Optional[float] = None,
+    ) -> bool:
+        """
+        Update creditor's settlement response in MongoDB (2. Schreiben).
+
+        Reuses the same client/creditor lookup logic as update_creditor_debt_amount.
+        Does NOT touch claim_amount or current_debt_amount.
+        """
+        if not self.is_available():
+            logger.warning("mongodb_settlement_update_skipped", reason="not_available")
+            return False
+
+        try:
+            clients_collection = self.db['clients']
+
+            # --- Client lookup (same logic as update_creditor_debt_amount) ---
+            client = None
+            if client_aktenzeichen:
+                client = clients_collection.find_one({'aktenzeichen': client_aktenzeichen})
+                if not client and '/' in client_aktenzeichen:
+                    normalized_az = client_aktenzeichen.replace('/', '_')
+                    client = clients_collection.find_one({'aktenzeichen': normalized_az})
+
+            if not client and client_name:
+                name_to_parse = client_name.strip()
+                if ',' in name_to_parse:
+                    parts = [p.strip() for p in name_to_parse.split(',', 1)]
+                    if len(parts) == 2:
+                        last_name, first_name = parts[0], parts[1]
+                    else:
+                        name_parts = name_to_parse.split(None, 1)
+                        first_name, last_name = (name_parts[0], name_parts[1]) if len(name_parts) == 2 else (name_to_parse, "")
+                else:
+                    name_parts = name_to_parse.split(None, 1)
+                    first_name, last_name = (name_parts[0], name_parts[1]) if len(name_parts) == 2 else (name_to_parse, "")
+
+                if first_name and last_name:
+                    client = clients_collection.find_one({'firstName': first_name, 'lastName': last_name})
+                    if not client:
+                        client = clients_collection.find_one(
+                            {'firstName': first_name, 'lastName': last_name},
+                            collation={'locale': 'de', 'strength': 2}
+                        )
+
+            if not client:
+                logger.warning("settlement_client_not_found",
+                              client_name=client_name, aktenzeichen=client_aktenzeichen)
+                return False
+
+            # --- Creditor lookup (same logic) ---
+            creditors = client.get('final_creditor_list', [])
+            matched_creditor_index = None
+
+            test_mode = False
+            try:
+                review_settings = self.db.review_settings.find_one({})
+                if review_settings:
+                    test_mode = review_settings.get('test_mode_enabled', False)
+            except Exception:
+                pass
+
+            for idx, cred in enumerate(creditors):
+                email_match = False
+                name_match = False
+
+                if test_mode:
+                    pass
+                elif creditor_email and cred.get('sender_email'):
+                    cred_email = cred.get('sender_email', '').lower().strip()
+                    search_email = creditor_email.lower().strip()
+                    email_match = (search_email in cred_email) or (cred_email in search_email)
+
+                if creditor_name:
+                    search_name = creditor_name.lower().strip()
+                    search_words = set(w for w in search_name.split() if len(w) > 3)
+                    for name_field in ['sender_name', 'glaeubiger_name', 'glaeubigervertreter_name', 'actual_creditor']:
+                        if name_match:
+                            break
+                        field_value = cred.get(name_field)
+                        if not field_value:
+                            continue
+                        cred_name_val = field_value.lower().strip()
+                        cred_words = set(w for w in cred_name_val.split() if len(w) > 3)
+                        if cred_words and search_words and (cred_words & search_words):
+                            name_match = True
+                        if not name_match and ((search_name in cred_name_val) or (cred_name_val in search_name)):
+                            name_match = True
+
+                if email_match or name_match:
+                    matched_creditor_index = idx
+                    break
+
+            if matched_creditor_index is None:
+                logger.warning("settlement_creditor_not_found",
+                              creditor_email=creditor_email, creditor_name=creditor_name)
+                return False
+
+            # --- Build settlement-specific update ---
+            idx = matched_creditor_index
+            update_data = {
+                f'final_creditor_list.{idx}.settlement_response_status': settlement_decision,
+                f'final_creditor_list.{idx}.settlement_response_date': datetime.utcnow(),
+                f'final_creditor_list.{idx}.contact_status': 'responded',
+                f'final_creditor_list.{idx}.last_contacted_at': datetime.utcnow(),
+            }
+            if response_summary:
+                update_data[f'final_creditor_list.{idx}.settlement_response_text'] = response_summary
+            if counter_offer_amount is not None:
+                update_data[f'final_creditor_list.{idx}.settlement_counter_offer_amount'] = counter_offer_amount
+            if conditions:
+                update_data[f'final_creditor_list.{idx}.settlement_response_conditions'] = conditions
+            if extraction_confidence is not None:
+                update_data[f'final_creditor_list.{idx}.extraction_confidence'] = extraction_confidence
+
+            breaker = get_mongodb_breaker()
+            try:
+                result = breaker.call(
+                    clients_collection.update_one,
+                    {'_id': client['_id']},
+                    {'$set': update_data}
+                )
+            except CircuitBreakerError:
+                logger.error("mongodb_circuit_open_settlement", client_name=client_name)
+                raise
+
+            if result.modified_count > 0:
+                logger.info("mongodb_settlement_updated",
+                           aktenzeichen=client.get('aktenzeichen'),
+                           creditor_name=creditor_name,
+                           decision=settlement_decision)
+                return True
+            else:
+                logger.warning("mongodb_settlement_no_changes")
+                return False
+
+        except Exception as e:
+            logger.error("mongodb_settlement_update_error", error=str(e), exc_info=True)
+            return False
+
     def close(self):
         """Close MongoDB connection"""
         if self.client:

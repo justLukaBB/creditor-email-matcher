@@ -45,6 +45,9 @@ class CreditorInquiry(Base):
     email_subject = Column(String(500), nullable=True)
     email_body = Column(Text, nullable=True)
 
+    # Letter Type (1. Schreiben vs 2. Schreiben/Schuldenbereinigungsplan)
+    letter_type = Column(String(20), default="first", nullable=False, server_default="first")
+
     # Status Tracking
     status = Column(String(50), default="sent")  # sent, replied, no_response, etc.
     response_received = Column(Boolean, default=False)

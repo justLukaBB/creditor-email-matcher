@@ -47,6 +47,9 @@ class InquiryCreate(BaseModel):
     # Timing
     sent_at: Optional[datetime] = None
 
+    # Letter type (first = 1. Schreiben, second = 2. Schreiben/Schuldenbereinigungsplan)
+    letter_type: str = "first"
+
     # Additional metadata
     contact_status: Optional[str] = None
     document_url: Optional[str] = None
@@ -59,6 +62,7 @@ class InquiryResponse(BaseModel):
     client_name: str
     creditor_name: str
     creditor_email: str
+    letter_type: str
     status: str
     created_at: datetime
 
@@ -100,6 +104,7 @@ async def create_inquiry(
     existing = db.query(CreditorInquiry).filter(
         CreditorInquiry.creditor_email == inquiry.creditor_email.lower(),
         CreditorInquiry.client_name_normalized == normalized_input,
+        CreditorInquiry.letter_type == inquiry.letter_type,
     ).first()
 
     # Also check reversed name order ("Last, First" -> "First Last")
@@ -109,6 +114,7 @@ async def create_inquiry(
         existing = db.query(CreditorInquiry).filter(
             CreditorInquiry.creditor_email == inquiry.creditor_email.lower(),
             CreditorInquiry.client_name_normalized == reversed_name,
+            CreditorInquiry.letter_type == inquiry.letter_type,
         ).first()
 
     if existing and inquiry.resend_email_id:
@@ -142,6 +148,9 @@ async def create_inquiry(
         # Resend
         resend_email_id=inquiry.resend_email_id,
         email_provider=inquiry.email_provider,
+
+        # Letter type
+        letter_type=inquiry.letter_type,
 
         # Timing
         sent_at=inquiry.sent_at or datetime.utcnow(),
