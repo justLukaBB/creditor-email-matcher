@@ -808,6 +808,8 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                             confidence_route=route.level.value if route else "unknown",
                             needs_review=False,
                             reference_numbers=reference_numbers,
+                            email_subject=email.subject,
+                            email_body_preview=email.raw_body_text,
                         )
 
                         if route.action == RoutingAction.AUTO_UPDATE:
@@ -1074,6 +1076,8 @@ def _process_second_round(
         confidence=settlement_result.confidence,
         match_status=email.match_status,
         needs_review=needs_review,
+        email_subject=subject,
+        email_body_preview=email_body,
     )
 
     logger.info("second_round_processing_complete",

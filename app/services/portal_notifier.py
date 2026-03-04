@@ -39,6 +39,8 @@ def notify_creditor_response(
     confidence_route: str = "unknown",
     needs_review: bool = False,
     reference_numbers: Optional[List[str]] = None,
+    email_subject: Optional[str] = None,
+    email_body_preview: Optional[str] = None,
 ) -> None:
     """
     Send webhook notification to Mandanten Portal (fire-and-forget).
@@ -76,6 +78,8 @@ def notify_creditor_response(
         "confidence_route": confidence_route,
         "needs_review": needs_review,
         "reference_numbers": reference_numbers or [],
+        "email_subject": email_subject,
+        "email_body_preview": (email_body_preview or "")[:500] or None,
         "processed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
@@ -123,6 +127,8 @@ def notify_settlement_response(
     confidence: Optional[float] = None,
     match_status: str = "auto_matched",
     needs_review: bool = False,
+    email_subject: Optional[str] = None,
+    email_body_preview: Optional[str] = None,
 ) -> None:
     """Send settlement response webhook to Mandanten Portal (fire-and-forget)."""
     from app.config import settings
@@ -143,6 +149,8 @@ def notify_settlement_response(
         "extraction_confidence": confidence,
         "match_status": match_status,
         "needs_review": needs_review,
+        "email_subject": email_subject,
+        "email_body_preview": (email_body_preview or "")[:500] or None,
         "processed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
