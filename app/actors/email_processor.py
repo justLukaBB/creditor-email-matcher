@@ -772,13 +772,17 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 if not guard_ok:
                     email.match_status = "auto_matched"
                     email.match_confidence = int(matching_result.match.total_score * 100)
+
+                    # No amount extracted = nothing to review, just log the response
+                    needs_review = new_debt_amount is not None
                     logger.info("amount_update_skipped_by_guard",
                                extra={"email_id": email_id,
                                       "reason": guard_reason,
                                       "existing_amount": existing_amount,
-                                      "new_amount": new_debt_amount})
+                                      "new_amount": new_debt_amount,
+                                      "needs_review": needs_review})
 
-                    # Still notify portal even when amount update is skipped
+                    # Notify portal — needs_review only if there's actually an amount to review
                     from app.services.portal_notifier import notify_creditor_response
                     notify_creditor_response(
                         email_id=email_id,
@@ -791,7 +795,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                         extraction_confidence=confidence_result.overall if confidence_result else None,
                         match_status="auto_matched",
                         confidence_route=route.level.value if route else "unknown",
-                        needs_review=True,
+                        needs_review=needs_review,
                         reference_numbers=reference_numbers,
                         email_subject=email.subject,
                         email_body_preview=email.raw_body_text,
