@@ -135,7 +135,9 @@ async def get_job_detail(
         "match_status": job.match_status,
         "match_confidence": job.match_confidence,
         "attachment_urls": job.attachment_urls,
-        "sync_status": job.sync_status
+        "sync_status": job.sync_status,
+        "raw_body_text": job.raw_body_text,
+        "raw_body_html": job.raw_body_html,
     }
 
 
