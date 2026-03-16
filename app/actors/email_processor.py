@@ -729,6 +729,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 from app.services.amount_update_guard import should_update_amount
 
                 intent = intent_result.get("intent")
+                existing_amount = None
                 if intent not in ("debt_statement", "payment_plan"):
                     guard_ok = False
                     guard_reason = f"intent_not_debt_statement:{intent}"
