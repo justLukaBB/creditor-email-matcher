@@ -81,6 +81,7 @@ def notify_creditor_response(
         "reference_numbers": reference_numbers or [],
         "email_subject": email_subject,
         "email_body_preview": (email_body_preview or "")[:500] or None,
+        "email_body_full": email_body_preview or None,
         "processed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
@@ -157,6 +158,7 @@ def notify_settlement_response(
         "needs_review": needs_review,
         "email_subject": email_subject,
         "email_body_preview": (email_body_preview or "")[:500] or None,
+        "email_body_full": email_body_preview or None,
         "processed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
