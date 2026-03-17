@@ -40,16 +40,24 @@ class EmailBodyExtractor:
         # Amount patterns ordered by specificity (most specific first)
         # Allow flexible text between keyword and amount (e.g., "beträgt", "von", ":")
         self.amount_patterns = [
-            # Explicit Gesamtforderung (with flexible separator)
-            r'[Gg]esamtforderung[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€)',
-            r'[Gg]esamt(?:betrag|summe)[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€)',
-            # Forderung patterns
-            r'[Ff]orderung(?:shöhe|sbetrag)?[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€)',
-            # Generic amount patterns
-            r'[Bb]etrag[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€)',
-            r'[Ss]umme[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€)',
+            # Explicit Gesamtforderung (with flexible separator) — with EUR/€/Euro
+            r'[Gg]esamtforderung[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)',
+            r'[Gg]esamt(?:betrag|summe)[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)',
+            # Forderung patterns — with EUR/€/Euro
+            r'[Ff]orderung(?:shöhe|sbetrag)?[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)',
+            # Generic amount patterns — with EUR/€/Euro
+            r'[Bb]etrag[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)',
+            r'[Ss]umme[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)',
+            # Keyword-based patterns WITHOUT currency (strong context = amount implied)
+            r'[Gg]esamtforderung[:\s\w]*?([0-9][0-9.,]{2,})()',
+            r'[Gg]esamt(?:betrag|summe)[:\s\w]*?([0-9][0-9.,]{2,})()',
+            r'[Ff]orderung(?:shöhe|sbetrag)?[:\s\w]*?([0-9][0-9.,]{2,})()',
+            r'[Ss]aldo[:\s\w]*?([0-9][0-9.,]{2,})()',
+            r'[Rr]ückstand[:\s\w]*?([0-9][0-9.,]{2,})()',
+            r'[Hh]auptforderung[:\s\w]*?([0-9][0-9.,]{2,})()',
+            r'[Zz]ahlungsbetrag[:\s\w]*?([0-9][0-9.,]{2,})()',
             # Amount followed by currency (catch-all)
-            r'([0-9][0-9.,]*)\s*(EUR|€)',
+            r'([0-9][0-9.,]*)\s*(EUR|€|Euro)',
             # Currency first patterns
             r'(EUR|€)\s*([0-9][0-9.,]*)',
         ]
@@ -129,12 +137,19 @@ class EmailBodyExtractor:
                         continue  # Skip unparseable amounts
 
                     if amount_value > 0:
-                        # Confidence: HIGH if German format detected (has comma decimal)
+                        # Confidence based on currency marker and format
+                        has_currency = any(c in match.group(0) for c in ('EUR', '€', 'Euro'))
                         has_german_decimal = ',' in amount_str and amount_str.index(',') > amount_str.rfind('.')
+                        if has_german_decimal and has_currency:
+                            confidence = 'HIGH'
+                        elif has_german_decimal or has_currency:
+                            confidence = 'MEDIUM'
+                        else:
+                            confidence = 'LOW'
                         found_amounts.append({
                             'value': amount_value,
                             'raw': match.group(0),
-                            'confidence': 'HIGH' if has_german_decimal else 'MEDIUM'
+                            'confidence': confidence
                         })
                 except (ValueError, IndexError):
                     continue

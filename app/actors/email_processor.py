@@ -937,6 +937,28 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 logger.info("review_queue_duplicate",
                            extra={"email_id": email_id})
 
+            # Notify portal for unmatched emails so they appear in admin inbox
+            from app.services.portal_notifier import notify_creditor_response
+            best_candidate_name = None
+            if matching_result.candidates:
+                best_candidate_name = matching_result.candidates[0].client_name
+            notify_creditor_response(
+                email_id=email_id,
+                client_aktenzeichen=client_aktenzeichen,
+                client_name=best_candidate_name or client_name,
+                creditor_name=creditor_name_or_email,
+                creditor_email=creditor_email,
+                new_debt_amount=new_debt_amount,
+                amount_source="creditor_response",
+                extraction_confidence=confidence_result.overall if confidence_result else None,
+                match_status=matching_result.status,
+                confidence_route=route.level.value if route else "unknown",
+                needs_review=True,
+                reference_numbers=reference_numbers,
+                email_subject=email.subject,
+                email_body_preview=email.raw_body_text,
+            )
+
         # Step 7: Mark as completed
         email.processing_status = "completed"
         email.completed_at = datetime.utcnow()
