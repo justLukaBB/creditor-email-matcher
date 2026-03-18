@@ -203,7 +203,8 @@ class ContentExtractionService:
             elif file_format == FileFormat.XLSX:
                 return self.xlsx_extractor.extract(file_path)
             elif file_format in (FileFormat.IMAGE_JPG, FileFormat.IMAGE_PNG):
-                return self.image_extractor.extract(file_path)
+                mime = "image/png" if file_format == FileFormat.IMAGE_PNG else "image/jpeg"
+                return self.image_extractor.extract(file_path, content_type=mime)
             else:
                 return SourceExtractionResult(
                     source_type="unknown",

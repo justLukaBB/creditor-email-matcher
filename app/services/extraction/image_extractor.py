@@ -138,7 +138,7 @@ class ImageExtractor:
             self._claude_client = Anthropic()
         return self._claude_client
 
-    def extract(self, image_path: str) -> SourceExtractionResult:
+    def extract(self, image_path: str, content_type: str = None) -> SourceExtractionResult:
         """
         Extract content from image file using Claude Vision.
 
@@ -211,15 +211,23 @@ class ImageExtractor:
                 result.extraction_method = "skipped"
                 return result
 
-            # Determine media type from extension
-            ext = os.path.splitext(working_path)[1].lower()
-            if ext in [".jpg", ".jpeg"]:
-                media_type = "image/jpeg"
-            elif ext == ".png":
-                media_type = "image/png"
+            # Determine media type: prefer explicit content_type, then extension, then magic bytes
+            if content_type and content_type in ("image/jpeg", "image/png"):
+                media_type = content_type
             else:
-                # Default to jpeg for unknown extensions
-                media_type = "image/jpeg"
+                ext = os.path.splitext(working_path)[1].lower()
+                if ext in [".jpg", ".jpeg"]:
+                    media_type = "image/jpeg"
+                elif ext == ".png":
+                    media_type = "image/png"
+                else:
+                    # No extension (e.g. temp files) — detect from file magic bytes
+                    with open(working_path, "rb") as f:
+                        header = f.read(8)
+                    if header[:4] == b'\x89PNG':
+                        media_type = "image/png"
+                    else:
+                        media_type = "image/jpeg"
 
             # Read and encode image as base64
             with open(working_path, "rb") as f:

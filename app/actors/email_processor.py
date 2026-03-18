@@ -482,16 +482,19 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
         # Priority: Phase 3 debt_amount (processes attachments), entity extraction for intent
         current_extracted_data = email.extracted_data or {}
 
-        # Override is_creditor_reply if pipeline extracted a debt amount AND intent is debt_statement
-        # This handles cases where attachment contains the creditor data but email body is sparse
+        # Override is_creditor_reply if pipeline extracted a debt amount
+        # A debt amount from attachments/body is strong signal this is a creditor reply,
+        # regardless of what the entity extractor thinks about the email body alone
         pipeline_has_amount = current_extracted_data.get("debt_amount") is not None
-        intent_is_debt = intent_result.get("intent") == "debt_statement"
+        non_creditor_intents = {"auto_reply", "spam"}
+        intent_value = intent_result.get("intent", "")
 
-        if pipeline_has_amount and intent_is_debt:
+        if pipeline_has_amount and intent_value not in non_creditor_intents:
             is_creditor_reply = True
             logger.info("is_creditor_override",
                        extra={"email_id": email_id,
-                              "reason": "pipeline_extracted_amount_with_debt_intent",
+                              "reason": "pipeline_extracted_amount",
+                              "intent": intent_value,
                               "amount": current_extracted_data.get("debt_amount")})
         else:
             is_creditor_reply = extracted_entities.is_creditor_reply
