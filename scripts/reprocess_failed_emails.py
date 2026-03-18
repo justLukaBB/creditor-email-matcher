@@ -57,10 +57,14 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 from app.models.incoming_email import IncomingEmail
 
 
-def find_failed_emails(db, since=None):
-    """Find emails that failed processing."""
+def find_failed_emails(db, since=None, include_misclassified=False):
+    """Find emails that failed or were misclassified."""
+    statuses = ["failed"]
+    if include_misclassified:
+        statuses.append("not_creditor_reply")
+
     filters = [
-        IncomingEmail.processing_status == "failed",
+        IncomingEmail.processing_status.in_(statuses),
     ]
     if since:
         filters.append(IncomingEmail.received_at >= since)
@@ -116,6 +120,8 @@ def main():
                         help="Actually reprocess (default is dry run)")
     parser.add_argument("--since", type=str, default=None,
                         help="Only reprocess emails received after this date (YYYY-MM-DD)")
+    parser.add_argument("--include-misclassified", action="store_true",
+                        help="Also reprocess not_creditor_reply emails (likely misclassified)")
     args = parser.parse_args()
 
     since = None
@@ -124,7 +130,7 @@ def main():
 
     db = SessionLocal()
     try:
-        emails = find_failed_emails(db, since=since)
+        emails = find_failed_emails(db, since=since, include_misclassified=args.include_misclassified)
         if not emails:
             print("No failed emails found.")
             return

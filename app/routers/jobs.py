@@ -141,20 +141,25 @@ async def get_job_detail(
     }
 
 
+RETRYABLE_STATUSES = {"failed", "not_creditor_reply", "completed"}
+
+
 @router.post("/{job_id}/retry")
 async def retry_job(
     job_id: int,
+    force: bool = Query(False, description="Force reprocess even if completed/not_creditor_reply"),
     db: Session = Depends(get_db)
 ):
     """
-    Manually re-enqueue a failed job
+    Manually re-enqueue a job for reprocessing.
 
-    Only works on jobs with processing_status = "failed".
-    Resets status to "queued", clears error, increments retry count,
+    By default accepts failed, not_creditor_reply, and completed jobs.
+    Resets status to "queued", clears previous results, increments retry count,
     and enqueues to Dramatiq.
 
     Args:
         job_id: IncomingEmail ID
+        force: Allow reprocessing of any terminal status
         db: Database session
 
     Returns:
@@ -162,7 +167,7 @@ async def retry_job(
 
     Raises:
         404: Job not found
-        400: Job is not in "failed" status
+        400: Job status not eligible for retry
     """
     if db is None:
         raise HTTPException(status_code=503, detail="Database not configured")
@@ -172,15 +177,23 @@ async def retry_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    if job.processing_status != "failed":
+    allowed = RETRYABLE_STATUSES if not force else RETRYABLE_STATUSES | {"extracted", "parsed"}
+    if job.processing_status not in allowed:
         raise HTTPException(
             status_code=400,
-            detail=f"Job is not in 'failed' status (current: {job.processing_status})"
+            detail=f"Job status '{job.processing_status}' not eligible for retry. Allowed: {sorted(allowed)}"
         )
 
-    # Reset job status
+    previous_status = job.processing_status
+
+    # Reset job status and clear stale results
     job.processing_status = "queued"
     job.processing_error = None
+    job.match_status = None
+    job.extracted_data = None
+    job.agent_checkpoints = {}
+    job.completed_at = None
+    job.processed_at = None
     job.retry_count += 1
     db.commit()
     db.refresh(job)
@@ -189,7 +202,10 @@ async def retry_job(
     try:
         from app.actors.email_processor import process_email
         process_email.send(email_id=job_id)
-        logger.info("job_manually_retried", job_id=job_id, retry_count=job.retry_count)
+        logger.info("job_manually_retried",
+                    job_id=job_id,
+                    previous_status=previous_status,
+                    retry_count=job.retry_count)
     except Exception as e:
         logger.error("job_retry_enqueue_failed", job_id=job_id, error=str(e))
         # Revert status change
@@ -201,6 +217,7 @@ async def retry_job(
     return {
         "id": job.id,
         "processing_status": job.processing_status,
+        "previous_status": previous_status,
         "retry_count": job.retry_count,
         "message": "Job re-enqueued for processing"
     }
