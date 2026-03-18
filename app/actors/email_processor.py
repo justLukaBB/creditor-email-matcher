@@ -337,6 +337,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 reference_numbers=[],
                 email_subject=email.subject,
                 email_body_preview=email.raw_body_text or email.raw_body_html,
+                intent=intent_result.get("intent"),
             )
             return
 
@@ -558,6 +559,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 reference_numbers=extracted_entities.reference_numbers if extracted_entities else [],
                 email_subject=email.subject,
                 email_body_preview=email.raw_body_text or email.raw_body_html,
+                intent=intent_result.get("intent"),
             )
             return
 

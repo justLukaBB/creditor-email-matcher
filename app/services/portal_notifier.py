@@ -41,6 +41,7 @@ def notify_creditor_response(
     reference_numbers: Optional[List[str]] = None,
     email_subject: Optional[str] = None,
     email_body_preview: Optional[str] = None,
+    intent: Optional[str] = None,
 ) -> None:
     """
     Send webhook notification to Mandanten Portal (fire-and-forget).
@@ -82,6 +83,7 @@ def notify_creditor_response(
         "email_subject": email_subject,
         "email_body_preview": (email_body_preview or "")[:500] or None,
         "email_body_full": email_body_preview or None,
+        "intent": intent,
         "processed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
