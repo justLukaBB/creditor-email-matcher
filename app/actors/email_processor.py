@@ -319,6 +319,25 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 "method": "intent_classification"
             }
             db.commit()
+
+            # Notify portal so ALL emails appear in admin inbox
+            from app.services.portal_notifier import notify_creditor_response
+            notify_creditor_response(
+                email_id=email_id,
+                client_aktenzeichen=None,
+                client_name=None,
+                creditor_name=email.from_email or "unknown",
+                creditor_email=email.from_email or "",
+                new_debt_amount=None,
+                amount_source="none",
+                extraction_confidence=None,
+                match_status="no_match",
+                confidence_route="skip_extraction",
+                needs_review=False,
+                reference_numbers=[],
+                email_subject=email.subject,
+                email_body_preview=email.raw_body_text or email.raw_body_html,
+            )
             return
 
         # Stage 2: Content Extraction (Agent 2)
@@ -521,6 +540,25 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
             email.completed_at = datetime.utcnow()
             email.processed_at = datetime.utcnow()
             db.commit()
+
+            # Notify portal so ALL emails appear in admin inbox
+            from app.services.portal_notifier import notify_creditor_response
+            notify_creditor_response(
+                email_id=email_id,
+                client_aktenzeichen=None,
+                client_name=extracted_entities.client_name if extracted_entities else None,
+                creditor_name=extracted_entities.creditor_name if extracted_entities else (email.from_email or "unknown"),
+                creditor_email=email.from_email or "",
+                new_debt_amount=current_extracted_data.get("debt_amount"),
+                amount_source="not_creditor_reply",
+                extraction_confidence=extracted_entities.confidence if extracted_entities else None,
+                match_status="no_match",
+                confidence_route="not_creditor_reply",
+                needs_review=False,
+                reference_numbers=extracted_entities.reference_numbers if extracted_entities else [],
+                email_subject=email.subject,
+                email_body_preview=email.raw_body_text or email.raw_body_html,
+            )
             return
 
         # ========================================
