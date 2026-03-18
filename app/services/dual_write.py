@@ -111,12 +111,16 @@ class DualDatabaseWriter:
 
         self.pg_session.add(outbox_message)
         try:
+            # Use savepoint so rollback doesn't nuke earlier session state
+            nested = self.pg_session.begin_nested()
             self.pg_session.flush()  # Get ID without committing
         except Exception as flush_err:
             if "UniqueViolation" in str(type(flush_err).__name__) or "unique" in str(flush_err).lower():
-                # Reprocessing: outbox message already exists — skip duplicate
+                # Reprocessing: outbox message already exists — rollback only the savepoint
                 log.info("outbox_idempotency_skip", idempotency_key=idempotency_key)
-                self.pg_session.rollback()
+                nested.rollback()
+                # Expunge the failed object so session is clean
+                self.pg_session.expunge(outbox_message)
                 # Re-query the existing outbox message
                 from app.models.outbox import OutboxMessage as OBM
                 outbox_message = self.pg_session.query(OBM).filter(
