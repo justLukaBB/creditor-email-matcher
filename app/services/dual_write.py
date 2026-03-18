@@ -110,7 +110,20 @@ class DualDatabaseWriter:
         )
 
         self.pg_session.add(outbox_message)
-        self.pg_session.flush()  # Get ID without committing
+        try:
+            self.pg_session.flush()  # Get ID without committing
+        except Exception as flush_err:
+            if "UniqueViolation" in str(type(flush_err).__name__) or "unique" in str(flush_err).lower():
+                # Reprocessing: outbox message already exists — skip duplicate
+                log.info("outbox_idempotency_skip", idempotency_key=idempotency_key)
+                self.pg_session.rollback()
+                # Re-query the existing outbox message
+                from app.models.outbox import OutboxMessage as OBM
+                outbox_message = self.pg_session.query(OBM).filter(
+                    OBM.idempotency_key == idempotency_key
+                ).first()
+            else:
+                raise
 
         log.info(
             "saga_step",
