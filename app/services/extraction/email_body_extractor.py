@@ -37,30 +37,39 @@ class EmailBodyExtractor:
     def __init__(self):
         self.preprocessor = GermanTextPreprocessor()
         self.validator = GermanValidator()
-        # Amount patterns ordered by specificity (most specific first)
-        # Allow flexible text between keyword and amount (e.g., "beträgt", "von", ":")
-        self.amount_patterns = [
-            # Explicit Gesamtforderung (with flexible separator) — with EUR/€/Euro
-            r'[Gg]esamtforderung[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)',
-            r'[Gg]esamt(?:betrag|summe)[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)',
-            # Forderung patterns — with EUR/€/Euro
-            r'[Ff]orderung(?:shöhe|sbetrag)?[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)',
-            # Generic amount patterns — with EUR/€/Euro
-            r'[Bb]etrag[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)',
-            r'[Ss]umme[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)',
-            # Keyword-based patterns WITHOUT currency (strong context = amount implied)
-            r'[Gg]esamtforderung[:\s\w]*?([0-9][0-9.,]{2,})()',
-            r'[Gg]esamt(?:betrag|summe)[:\s\w]*?([0-9][0-9.,]{2,})()',
-            r'[Ff]orderung(?:shöhe|sbetrag)?[:\s\w]*?([0-9][0-9.,]{2,})()',
-            r'[Ss]aldo[:\s\w]*?([0-9][0-9.,]{2,})()',
-            r'[Rr]ückstand[:\s\w]*?([0-9][0-9.,]{2,})()',
-            r'[Hh]auptforderung[:\s\w]*?([0-9][0-9.,]{2,})()',
-            r'[Zz]ahlungsbetrag[:\s\w]*?([0-9][0-9.,]{2,})()',
-            # Amount followed by currency (catch-all)
-            r'([0-9][0-9.,]*)\s*(EUR|€|Euro)',
-            # Currency first patterns
-            r'(EUR|€)\s*([0-9][0-9.,]*)',
+        # Amount patterns grouped by priority tier.
+        # Tier 1 (TOTAL keywords) = definitive total amounts — always preferred.
+        # Tier 2 (SPECIFIC keywords) = strong context like Gesamtforderung, Forderung.
+        # Tier 3 (GENERIC) = catch-all EUR patterns.
+        # Within each tier, highest amount wins. Higher tier always beats lower tier.
+        self.amount_patterns_tiered = [
+            # === TIER 1: Definitive total keywords (Summe, noch zu zahlen, insgesamt) ===
+            (1, r'(?:noch\s+zu\s+zahlen|Noch\s+zu\s+zahlen)[:\s]*([0-9][0-9.,]*)\s*(EUR|€|Euro)'),
+            (1, r'[Ii]nsgesamt[:\s]*([0-9][0-9.,]*)\s*(EUR|€|Euro)'),
+            (1, r'[Ff]orderung[:\s\w]*?insgesamt[:\s]*([0-9][0-9.,]*)\s*(EUR|€|Euro)'),
+            (1, r'[Ss]umme[:\s]*([0-9][0-9.,]*)\s*(EUR|€|Euro)'),
+            (1, r'[Gg]esamtforderung[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)'),
+            (1, r'[Gg]esamt(?:betrag|summe)[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)'),
+            # === TIER 2: Specific claim keywords with EUR ===
+            (2, r'[Ff]orderung(?:shöhe|sbetrag)?[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)'),
+            (2, r'[Bb]etrag[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)'),
+            (2, r'[Rr]estschuld[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)'),
+            (2, r'[Oo]ffener\s+(?:Betrag|Saldo)[:\s\w]*?([0-9][0-9.,]*)\s*(EUR|€|Euro)'),
+            # === TIER 2b: Keyword-based patterns WITHOUT currency (strong context) ===
+            (2, r'[Gg]esamtforderung[:\s\w]*?([0-9][0-9.,]{2,})()'),
+            (2, r'[Gg]esamt(?:betrag|summe)[:\s\w]*?([0-9][0-9.,]{2,})()'),
+            (2, r'[Ff]orderung(?:shöhe|sbetrag)?[:\s\w]*?([0-9][0-9.,]{2,})()'),
+            (2, r'[Ss]aldo[:\s\w]*?([0-9][0-9.,]{2,})()'),
+            (2, r'[Rr]ückstand[:\s\w]*?([0-9][0-9.,]{2,})()'),
+            (2, r'[Hh]auptforderung[:\s\w]*?([0-9][0-9.,]{2,})()'),
+            (2, r'[Zz]ahlungsbetrag[:\s\w]*?([0-9][0-9.,]{2,})()'),
+            # === TIER 3: Catch-all (any number near EUR) ===
+            (3, r'([0-9][0-9.,]*)\s*(EUR|€|Euro)'),
+            (3, r'(EUR|€)\s*([0-9][0-9.,]*)'),
         ]
+
+        # Phone number prefixes to filter (German area codes like 0761, 0234, etc.)
+        self._phone_prefixes = re.compile(r'^0\d{2,4}$')
 
     def extract(self, email_text: str) -> SourceExtractionResult:
         """
@@ -87,24 +96,26 @@ class EmailBodyExtractor:
         # NEW: Apply German preprocessing (Unicode normalization + OCR correction)
         preprocessed_text = self.preprocessor.preprocess(email_text)
 
-        # Find all amounts in preprocessed text
+        # Find all amounts in preprocessed text (tiered by keyword context)
         found_amounts = self._find_amounts(preprocessed_text)
 
         logger.info(f"EmailBodyExtractor: found {len(found_amounts)} amounts in email body")
 
-        # Take the highest amount (USER DECISION: highest wins)
+        # Select best amount: highest tier wins, within tier highest amount wins
         if found_amounts:
-            best = max(found_amounts, key=lambda x: x['value'])
+            best = self._select_best_amount(found_amounts)
             result.gesamtforderung = ExtractedAmount(
                 value=best['value'],
                 currency="EUR",
                 raw_text=best['raw'],
                 source="email_body",
-                confidence=best['confidence']
+                confidence=best['confidence'],
+                tier=best['tier'],
             )
             logger.info(
                 f"EmailBodyExtractor: selected {best['value']} EUR "
-                f"(confidence: {best['confidence']}) from {len(found_amounts)} candidates"
+                f"(tier: {best['tier']}, confidence: {best['confidence']}) "
+                f"from {len(found_amounts)} candidates"
             )
 
         # Extract entity names
@@ -114,13 +125,13 @@ class EmailBodyExtractor:
 
     def _find_amounts(self, text: str) -> List[Dict[str, Any]]:
         """
-        Find all monetary amounts in text using regex patterns.
+        Find all monetary amounts in text using tiered regex patterns.
 
-        Returns list of dicts with: value, raw, confidence
+        Returns list of dicts with: value, raw, confidence, tier
         """
         found_amounts = []
 
-        for pattern in self.amount_patterns:
+        for tier, pattern in self.amount_patterns_tiered:
             for match in re.finditer(pattern, text):
                 try:
                     # Handle both patterns: "1.234,56 EUR" and "EUR 1.234,56"
@@ -130,7 +141,13 @@ class EmailBodyExtractor:
                     else:
                         amount_str = groups[0]
 
-                    # NEW: Use babel-based parser instead of manual replacement
+                    # Filter phone numbers (e.g., 0761 from "Telefon 0761 279-2445")
+                    amount_str_clean = amount_str.replace('.', '').replace(',', '')
+                    if self._phone_prefixes.match(amount_str_clean):
+                        logger.debug(f"EmailBodyExtractor: filtered phone number: {amount_str}")
+                        continue
+
+                    # Use babel-based parser
                     try:
                         amount_value = parse_german_amount(amount_str)
                     except ValueError:
@@ -149,12 +166,25 @@ class EmailBodyExtractor:
                         found_amounts.append({
                             'value': amount_value,
                             'raw': match.group(0),
-                            'confidence': confidence
+                            'confidence': confidence,
+                            'tier': tier,
                         })
                 except (ValueError, IndexError):
                     continue
 
         return found_amounts
+
+    def _select_best_amount(self, amounts: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Select best amount using tier priority, then highest value within tier.
+
+        Tier 1 (Summe/insgesamt/noch zu zahlen) always beats Tier 2/3.
+        Within same tier, highest amount wins.
+        """
+        # Group by tier, pick the best tier available
+        best_tier = min(a['tier'] for a in amounts)
+        tier_amounts = [a for a in amounts if a['tier'] == best_tier]
+        return max(tier_amounts, key=lambda x: x['value'])
 
     def _extract_names(self, text: str, result: SourceExtractionResult) -> None:
         """

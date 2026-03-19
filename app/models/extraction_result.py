@@ -33,6 +33,10 @@ class ExtractedAmount(BaseModel):
     confidence: Literal["HIGH", "MEDIUM", "LOW"] = Field(
         description="Confidence based on format precision: precise currency format = HIGH, numeric = MEDIUM, missing = LOW"
     )
+    tier: int = Field(
+        default=3,
+        description="Keyword context tier: 1=definitive total (Summe/insgesamt), 2=specific keyword, 3=catch-all"
+    )
 
 
 class ExtractedEntity(BaseModel):

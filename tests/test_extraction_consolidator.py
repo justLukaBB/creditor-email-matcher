@@ -179,3 +179,120 @@ class TestConsolidatorEdgeCases:
         ]
         result = consolidator.consolidate(sources)
         assert result.extraction_method_final == "regex_fallback"
+
+
+class TestTierAwareConsolidation:
+    """Tests for tier-aware amount selection (Summe/insgesamt > catch-all)."""
+
+    def test_tier1_beats_tier3_even_when_lower(self, consolidator):
+        """Badenova bug: Summe 182.30 (tier 1) must beat catch-all 761 (tier 3)."""
+        sources = [
+            SourceExtractionResult(
+                source_type="email_body",
+                extraction_method="text_parsing",
+                gesamtforderung=ExtractedAmount(
+                    value=182.30, source="email_body", confidence="HIGH", tier=1
+                ),
+            ),
+            SourceExtractionResult(
+                source_type="pdf",
+                source_name="kontoinformation.pdf",
+                extraction_method="pymupdf",
+                gesamtforderung=ExtractedAmount(
+                    value=761.0, source="pdf", confidence="MEDIUM", tier=3
+                ),
+            ),
+        ]
+        result = consolidator.consolidate(sources)
+        assert result.gesamtforderung == 182.30
+        assert "tier_1" in result.extraction_reason
+
+    def test_tier2_beats_tier3(self, consolidator):
+        """Specific keyword (tier 2) beats catch-all (tier 3)."""
+        sources = [
+            SourceExtractionResult(
+                source_type="email_body",
+                extraction_method="text_parsing",
+                gesamtforderung=ExtractedAmount(
+                    value=500.0, source="email_body", confidence="MEDIUM", tier=2
+                ),
+            ),
+            SourceExtractionResult(
+                source_type="pdf",
+                source_name="invoice.pdf",
+                extraction_method="pymupdf",
+                gesamtforderung=ExtractedAmount(
+                    value=900.0, source="pdf", confidence="MEDIUM", tier=3
+                ),
+            ),
+        ]
+        result = consolidator.consolidate(sources)
+        assert result.gesamtforderung == 500.0
+
+    def test_same_tier_highest_wins(self, consolidator):
+        """Within same tier, highest amount wins (backwards compatible)."""
+        sources = [
+            SourceExtractionResult(
+                source_type="email_body",
+                extraction_method="text_parsing",
+                gesamtforderung=ExtractedAmount(
+                    value=200.0, source="email_body", confidence="MEDIUM", tier=2
+                ),
+            ),
+            SourceExtractionResult(
+                source_type="pdf",
+                source_name="forderung.pdf",
+                extraction_method="pymupdf",
+                gesamtforderung=ExtractedAmount(
+                    value=500.0, source="pdf", confidence="HIGH", tier=2
+                ),
+            ),
+        ]
+        result = consolidator.consolidate(sources)
+        assert result.gesamtforderung == 500.0
+
+    def test_default_tier3_backwards_compatible(self, consolidator):
+        """Amounts without explicit tier default to 3 (backwards compatible)."""
+        sources = [
+            SourceExtractionResult(
+                source_type="email_body",
+                extraction_method="text_parsing",
+                gesamtforderung=ExtractedAmount(
+                    value=200.0, source="email_body", confidence="MEDIUM"
+                ),
+            ),
+            SourceExtractionResult(
+                source_type="pdf",
+                source_name="forderung.pdf",
+                extraction_method="pymupdf",
+                gesamtforderung=ExtractedAmount(
+                    value=500.0, source="pdf", confidence="HIGH"
+                ),
+            ),
+        ]
+        result = consolidator.consolidate(sources)
+        # Both default to tier 3, so highest wins (backwards compatible)
+        assert result.gesamtforderung == 500.0
+
+    def test_dedup_keeps_better_tier(self, consolidator):
+        """When amounts are within 1 EUR, keep the one with better tier."""
+        sources = [
+            SourceExtractionResult(
+                source_type="email_body",
+                extraction_method="text_parsing",
+                gesamtforderung=ExtractedAmount(
+                    value=182.30, source="email_body", confidence="HIGH", tier=1
+                ),
+            ),
+            SourceExtractionResult(
+                source_type="pdf",
+                source_name="doc.pdf",
+                extraction_method="pymupdf",
+                gesamtforderung=ExtractedAmount(
+                    value=182.50, source="pdf", confidence="MEDIUM", tier=3
+                ),
+            ),
+        ]
+        result = consolidator.consolidate(sources)
+        # Within 1 EUR, tier 1 version kept
+        assert result.gesamtforderung == 182.30

@@ -4,10 +4,11 @@ Extraction Consolidator (Phase 3: Multi-Format Document Extraction)
 Merges extraction results from all sources (email body, PDFs, DOCX, XLSX, images)
 into a single ConsolidatedExtractionResult using business rules.
 
-Business Rules (USER DECISIONS - LOCKED):
-1. Email body + attachments: highest amount wins
-2. No amount found anywhere: return None (guard prevents DB overwrite)
-3. Confidence: weakest link across all sources
+Business Rules:
+1. Best tier wins across all sources (tier 1 = Summe/insgesamt > tier 2 > tier 3)
+2. Within same tier: highest amount wins
+3. No amount found anywhere: return None (guard prevents DB overwrite)
+4. Confidence: weakest link across all sources
 """
 
 from typing import List, Optional
@@ -30,7 +31,8 @@ class ExtractionConsolidator:
     Consolidator for merging extraction results from multiple sources.
 
     Applies business rules to produce a final extraction result:
-    - Highest amount wins across all sources
+    - Best tier wins (1=Summe/insgesamt, 2=specific keyword, 3=catch-all)
+    - Within same tier: highest amount wins
     - None if no amounts found (guard prevents DB overwrite)
     - Final confidence is weakest link
 
@@ -56,10 +58,11 @@ class ExtractionConsolidator:
         """
         Merge extraction results from all sources.
 
-        Business rules (USER DECISIONS):
-        1. Highest amount wins when multiple sources have amounts
-        2. No amount found: return None (guard prevents DB overwrite)
-        3. Final confidence is weakest link
+        Business rules:
+        1. Best tier wins (1=Summe/insgesamt, 2=specific keyword, 3=catch-all)
+        2. Within same tier: highest amount wins
+        3. No amount found: return None (guard prevents DB overwrite)
+        4. Final confidence is weakest link
 
         Args:
             source_results: List of SourceExtractionResult from each source
@@ -104,6 +107,7 @@ class ExtractionConsolidator:
                     source=result.source_name,
                     value=result.gesamtforderung.value,
                     confidence=result.gesamtforderung.confidence,
+                    tier=result.gesamtforderung.tier,
                 )
 
             if result.client_name:
@@ -117,11 +121,15 @@ class ExtractionConsolidator:
         # Collect raw candidate values for diagnostics
         raw_candidates = [a.value for a in all_amounts]
 
-        # Apply highest-amount-wins rule (USER DECISION)
+        # Apply tier-aware selection: best tier wins, then highest amount within tier
         if all_amounts:
-            # Deduplicate: amounts within 1 EUR are considered same
+            # Deduplicate: amounts within 1 EUR are considered same (keep best tier)
             unique_amounts = self._deduplicate_amounts(all_amounts)
-            best_amount = max(unique_amounts, key=lambda x: x.value)
+
+            # Best tier (lowest number) wins across all sources
+            best_tier = min(a.tier for a in unique_amounts)
+            tier_amounts = [a for a in unique_amounts if a.tier == best_tier]
+            best_amount = max(tier_amounts, key=lambda x: x.value)
             final_amount = best_amount.value
 
             # Determine extraction method based on source types
@@ -131,13 +139,15 @@ class ExtractionConsolidator:
             else:
                 extraction_method_final = "regex_fallback"
 
-            extraction_reason = "highest_amount_selected"
+            extraction_reason = f"best_tier_{best_tier}_selected"
 
             log.info(
-                "highest_amount_wins",
+                "tier_aware_selection",
                 final_amount=final_amount,
+                best_tier=best_tier,
                 total_amounts_found=len(all_amounts),
                 unique_amounts=len(unique_amounts),
+                tier_amounts=len(tier_amounts),
                 source=best_amount.source,
                 extraction_method_final=extraction_method_final,
             )
@@ -156,7 +166,7 @@ class ExtractionConsolidator:
         final_client_name = self._pick_best_name(all_client_names)
         final_creditor_name = self._pick_best_name(all_creditor_names)
 
-        # Calculate final confidence (weakest link) - USER DECISION
+        # Calculate final confidence (weakest link)
         if not confidences:
             final_confidence = "LOW"
         else:
@@ -195,7 +205,7 @@ class ExtractionConsolidator:
         """
         Deduplicate amounts within 1 EUR of each other.
 
-        Keeps the higher confidence version when amounts are similar.
+        When amounts are similar, keeps the one with the better (lower) tier.
 
         Args:
             amounts: List of extracted amounts
@@ -206,13 +216,21 @@ class ExtractionConsolidator:
         if not amounts:
             return []
 
-        # Sort by value descending
-        sorted_amounts = sorted(amounts, key=lambda x: x.value, reverse=True)
+        # Sort by tier first (best tier = lowest), then value descending
+        sorted_amounts = sorted(amounts, key=lambda x: (x.tier, -x.value))
 
         unique = [sorted_amounts[0]]
         for amount in sorted_amounts[1:]:
             # Check if within 1 EUR of any existing
-            if not any(abs(amount.value - existing.value) < 1.0 for existing in unique):
+            existing_match = next(
+                (e for e in unique if abs(amount.value - e.value) < 1.0),
+                None
+            )
+            if existing_match is None:
+                unique.append(amount)
+            elif amount.tier < existing_match.tier:
+                # Same amount but better tier — replace
+                unique.remove(existing_match)
                 unique.append(amount)
 
         logger.debug(

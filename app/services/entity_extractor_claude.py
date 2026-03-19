@@ -248,9 +248,11 @@ Extrahiere die folgenden Informationen aus der E-Mail:
    - Der Gläubiger-Name kann auch im Briefkopf, Footer oder in der Absender-Zeile stehen
    - Auch wenn die Email von einer persönlichen Adresse kommt (z.B. gmail.com), schaue in der Signatur nach der Firmenbezeichnung
 4. **debt_amount**: Gesamtschulden in EUR. Suche nach "Forderung", "Betrag", "Schulden"
-   - **WICHTIG**: Gib NUR einen Betrag zurück, wenn die E-Mail einen expliziten Forderungsbetrag (Gesamtforderung, Hauptforderung, offener Saldo) enthält
+   - **PRIORITÄT**: Suche ZUERST nach "Summe", "noch zu zahlen", "insgesamt", "Gesamtforderung" — diese enthalten den korrekten Gesamtbetrag
+   - Bei Tabellen mit Einzelpositionen: IMMER die Summenzeile verwenden, NICHT einzelne Positionen
+   - **WICHTIG**: Gib NUR einen Betrag zurück, wenn die E-Mail einen expliziten Forderungsbetrag enthält
    - Wenn die E-Mail eine Rückfrage ist (z.B. "Bitte korrektes Aktenzeichen angeben"), eine Klarstellung anfordert, oder administrative Inhalte hat: gib `null` zurück
-   - Extrahiere NIEMALS Beträge aus Postleitzahlen, Telefonnummern, Aktenzeichen oder anderen nicht-forderungsbezogenen Zahlen
+   - **NIEMALS** Beträge aus Telefonnummern (z.B. 0761, 0234, 030), Postleitzahlen (z.B. 79108), Vertragskonto-Nummern, Ticket-IDs oder Aktenzeichen extrahieren
    - Im Zweifel: `null` zurückgeben statt einen falschen Betrag zu raten
 5. **reference_numbers**: Alle Referenznummern (Aktenzeichen, Kundennummer, Vertragsnummer, Rechnungsnummer)
 6. **confidence**: Dein Vertrauen in die Extraktion (0.0 = sehr unsicher, 1.0 = sehr sicher)

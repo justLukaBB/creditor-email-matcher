@@ -53,19 +53,29 @@ logger = structlog.get_logger(__name__)
 EXTRACTION_PROMPT = """Analysiere dieses deutsche Glaeubigerdokument und extrahiere die folgenden Informationen.
 
 WICHTIGE REGELN:
-1. Suche nach "Gesamtforderung" (Hauptbetrag) - dies ist der wichtigste Betrag
-2. Akzeptiere auch Synonyme: "Forderungshoehe", "offener Betrag", "Gesamtsumme", "Schulden", "Restschuld"
-3. Deutsche Zahlenformatierung: 1.234,56 EUR bedeutet 1234.56
-4. Wenn keine explizite Gesamtforderung: Summiere "Hauptforderung" + "Zinsen" + "Kosten"
+1. Suche ZUERST nach "Summe", "noch zu zahlen", "insgesamt", "Gesamtforderung" - diese Zeilen enthalten den korrekten Gesamtbetrag
+2. Bei Tabellen mit Einzelpositionen: IMMER die Summenzeile verwenden, NICHT einzelne Positionen
+3. Akzeptiere auch Synonyme: "Forderungshoehe", "offener Betrag", "Gesamtsumme", "Schulden", "Restschuld"
+4. Deutsche Zahlenformatierung: 1.234,56 EUR bedeutet 1234.56
+5. Wenn keine explizite Gesamtforderung: Summiere "Hauptforderung" + "Zinsen" + "Kosten"
+
+WARNUNG - KEINE Telefonnummern oder IDs extrahieren:
+- Telefonnummern (z.B. 0761, 0234, 030) sind KEINE Betraege
+- Postleitzahlen (z.B. 79108, 44787) sind KEINE Betraege
+- Vertragskonto-Nummern sind KEINE Betraege
+- Ticket-IDs sind KEINE Betraege
+- NUR Betraege mit EUR/Euro-Kontext oder in Forderungs-Tabellen extrahieren
 
 BEISPIELE (typische Formulierungen in Glaeubiger-Antworten):
+- "Summe: 182,30 EUR" -> gesamtforderung: 182.30
+- "noch zu zahlen: 182,30 EUR" -> gesamtforderung: 182.30
+- "Forderung von insgesamt 182,30 EUR" -> gesamtforderung: 182.30
 - "Die Gesamtforderung betraegt 1.234,56 EUR" -> gesamtforderung: 1234.56
-- "Offener Betrag: 2.500,00 EUR" -> gesamtforderung: 2500.00
-- "Restschuld per 01.01.2026: 3.456,78 EUR" -> gesamtforderung: 3456.78
 - "Hauptforderung 1.000 EUR, Zinsen 150,50 EUR, Kosten 84,00 EUR" -> gesamtforderung: 1234.50 (Summe)
+- Tabelle mit Einzelpositionen 80 EUR, 10 EUR, 2 EUR und Summe 92 EUR -> gesamtforderung: 92.00 (die Summenzeile!)
 
 EXTRAHIERE:
-1. gesamtforderung: Gesamtforderungsbetrag in EUR (nur Zahl, z.B. 1234.56)
+1. gesamtforderung: Gesamtforderungsbetrag in EUR (nur Zahl, z.B. 1234.56). Bei Tabellen IMMER die Summenzeile verwenden.
 2. glaeubiger: Name des Glaeubigerers/der Firma (z.B. "XY Inkasso GmbH", "ABC Bank AG")
 3. schuldner: Name des Schuldners/Kunden (z.B. "Max Mustermann", "Maria Mueller")
 4. components: Falls Gesamtforderung nicht explizit, gib Aufschluesselung an
@@ -276,9 +286,8 @@ class PDFExtractor:
         """
         Parse extracted text to find Gesamtforderung, client_name, creditor_name.
 
-        Uses regex patterns for German currency formats:
-        - 1.234,56 EUR (German format)
-        - EUR 1234.56 (standard format)
+        Uses tiered regex patterns for German currency formats.
+        Tier 1 (Summe/noch zu zahlen/insgesamt) always preferred over generic matches.
 
         Args:
             text: Extracted text content
@@ -297,61 +306,78 @@ class PDFExtractor:
             tokens_used=0,  # PyMuPDF = no API cost
         )
 
-        # Search for Gesamtforderung patterns (German currency formats)
-        # Patterns: "Gesamtforderung: 1.234,56 EUR", "Gesamt: EUR 1234.56", etc.
-        amount_patterns = [
-            # Pattern with label followed by amount then currency
-            r"[Gg]esamtforderung[:\s]+([0-9][0-9.,]*)\s*(EUR|€)",
-            r"[Gg]esamt[:\s]+([0-9][0-9.,]*)\s*(EUR|€)",
-            r"[Ff]orderung[:\s]+([0-9][0-9.,]*)\s*(EUR|€)",
-            r"[Bb]etrag[:\s]+([0-9][0-9.,]*)\s*(EUR|€)",
-            # Pattern with currency before amount
-            r"(EUR|€)\s*([0-9][0-9.,]+)",
+        # Tiered patterns: tier 1 = definitive totals, tier 2 = specific, tier 3 = catch-all
+        amount_patterns_tiered = [
+            # Tier 1: Definitive total keywords
+            (1, r"(?:noch\s+zu\s+zahlen|Noch\s+zu\s+zahlen)[:\s]*([0-9][0-9.,]*)\s*(EUR|€)"),
+            (1, r"[Ss]umme[:\s]*([0-9][0-9.,]*)\s*(EUR|€)"),
+            (1, r"[Ii]nsgesamt[:\s]*([0-9][0-9.,]*)\s*(EUR|€)"),
+            (1, r"[Gg]esamtforderung[:\s]+([0-9][0-9.,]*)\s*(EUR|€)"),
+            (1, r"[Gg]esamt(?:betrag|summe)?[:\s]+([0-9][0-9.,]*)\s*(EUR|€)"),
+            # Tier 2: Specific claim keywords
+            (2, r"[Ff]orderung[:\s]+([0-9][0-9.,]*)\s*(EUR|€)"),
+            (2, r"[Bb]etrag[:\s]+([0-9][0-9.,]*)\s*(EUR|€)"),
+            (2, r"[Rr]estschuld[:\s]+([0-9][0-9.,]*)\s*(EUR|€)"),
+            # Tier 3: Catch-all
+            (3, r"(EUR|€)\s*([0-9][0-9.,]+)"),
         ]
 
-        for pattern in amount_patterns:
-            match = re.search(pattern, text)
-            if match:
-                # Handle both pattern types (amount first vs currency first)
+        # Phone number filter
+        phone_prefix_re = re.compile(r"^0\d{2,4}$")
+
+        # Collect all matches with tier info
+        candidates = []
+        for tier, pattern in amount_patterns_tiered:
+            for match in re.finditer(pattern, text):
                 groups = match.groups()
                 if groups[0] in ("EUR", "€"):
                     amount_str = groups[1]
                 else:
                     amount_str = groups[0]
 
-                try:
-                    # German format: 1.234,56 -> replace . with '', then , with .
-                    normalized = amount_str.replace(".", "").replace(",", ".")
-                    amount_value = float(normalized)
-
-                    # Determine confidence based on format precision
-                    # Precise format (e.g., 1234,56 with 2 decimal places) = HIGH
-                    has_precise_decimals = re.search(r",\d{2}$", amount_str) is not None
-
-                    result.gesamtforderung = ExtractedAmount(
-                        value=amount_value,
-                        currency="EUR",
-                        raw_text=match.group(0),
-                        source="pdf",
-                        confidence="HIGH" if has_precise_decimals else "MEDIUM",
-                    )
-                    log.info(
-                        "amount_extracted",
-                        value=amount_value,
-                        raw_text=match.group(0),
-                        pattern=pattern,
-                        confidence=result.gesamtforderung.confidence,
-                    )
-                    break
-                except ValueError as e:
-                    log.warning("amount_parse_failed", raw=amount_str, error=str(e))
+                # Filter phone numbers
+                clean = amount_str.replace(".", "").replace(",", "")
+                if phone_prefix_re.match(clean):
+                    log.debug("phone_number_filtered", raw=amount_str)
                     continue
 
-        # Note: client_name and creditor_name extraction is basic here
-        # Phase 4 (German Document Extraction) will improve name extraction
-        # For now, return what we found (amount is primary target)
+                try:
+                    normalized = amount_str.replace(".", "").replace(",", ".")
+                    amount_value = float(normalized)
+                    if amount_value > 0:
+                        has_precise_decimals = re.search(r",\d{2}$", amount_str) is not None
+                        candidates.append({
+                            "value": amount_value,
+                            "raw_text": match.group(0),
+                            "confidence": "HIGH" if has_precise_decimals else "MEDIUM",
+                            "tier": tier,
+                        })
+                except ValueError as e:
+                    log.warning("amount_parse_failed", raw=amount_str, error=str(e))
 
-        if result.gesamtforderung is None:
+        if candidates:
+            # Best tier wins, then highest value within tier
+            best_tier = min(c["tier"] for c in candidates)
+            tier_candidates = [c for c in candidates if c["tier"] == best_tier]
+            best = max(tier_candidates, key=lambda x: x["value"])
+
+            result.gesamtforderung = ExtractedAmount(
+                value=best["value"],
+                currency="EUR",
+                raw_text=best["raw_text"],
+                source="pdf",
+                confidence=best["confidence"],
+                tier=best["tier"],
+            )
+            log.info(
+                "amount_extracted",
+                value=best["value"],
+                raw_text=best["raw_text"],
+                tier=best["tier"],
+                total_candidates=len(candidates),
+                confidence=best["confidence"],
+            )
+        else:
             log.warning("no_amount_found_in_text")
 
         return result
