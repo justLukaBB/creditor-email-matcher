@@ -42,6 +42,7 @@ def notify_creditor_response(
     email_subject: Optional[str] = None,
     email_body_preview: Optional[str] = None,
     intent: Optional[str] = None,
+    attachment_urls: Optional[List[dict]] = None,
 ) -> None:
     """
     Send webhook notification to Mandanten Portal (fire-and-forget).
@@ -84,6 +85,7 @@ def notify_creditor_response(
         "email_body_preview": (email_body_preview or "")[:500] or None,
         "email_body_full": email_body_preview or None,
         "intent": intent,
+        "attachments": attachment_urls or [],
         "processed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
@@ -133,6 +135,7 @@ def notify_settlement_response(
     needs_review: bool = False,
     email_subject: Optional[str] = None,
     email_body_preview: Optional[str] = None,
+    attachment_urls: Optional[List[dict]] = None,
 ) -> None:
     """Send settlement response webhook to Mandanten Portal (fire-and-forget)."""
     from app.config import settings
@@ -161,6 +164,7 @@ def notify_settlement_response(
         "email_subject": email_subject,
         "email_body_preview": (email_body_preview or "")[:500] or None,
         "email_body_full": email_body_preview or None,
+        "attachments": attachment_urls or [],
         "processed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 

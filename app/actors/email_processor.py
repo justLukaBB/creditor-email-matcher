@@ -338,6 +338,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 email_subject=email.subject,
                 email_body_preview=email.raw_body_text or email.raw_body_html,
                 intent=intent_result.get("intent"),
+                attachment_urls=email.attachment_urls,
             )
             return
 
@@ -560,6 +561,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 email_subject=email.subject,
                 email_body_preview=email.raw_body_text or email.raw_body_html,
                 intent=intent_result.get("intent"),
+                attachment_urls=email.attachment_urls,
             )
             return
 
@@ -842,6 +844,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                         reference_numbers=reference_numbers,
                         email_subject=email.subject,
                         email_body_preview=email.raw_body_text,
+                        attachment_urls=email.attachment_urls,
                     )
                 else:
                     # Guard approved — proceed with dual write
@@ -902,6 +905,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                             reference_numbers=reference_numbers,
                             email_subject=email.subject,
                             email_body_preview=email.raw_body_text,
+                            attachment_urls=email.attachment_urls,
                         )
 
                         if route.action == RoutingAction.AUTO_UPDATE:
@@ -1000,6 +1004,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 reference_numbers=reference_numbers,
                 email_subject=email.subject,
                 email_body_preview=email.raw_body_text,
+                attachment_urls=email.attachment_urls,
             )
 
         # Step 7: Mark as completed
@@ -1192,6 +1197,7 @@ def _process_second_round(
         needs_review=needs_review,
         email_subject=subject,
         email_body_preview=email_body,
+        attachment_urls=email.attachment_urls,
     )
 
     logger.info("second_round_processing_complete",
