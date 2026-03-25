@@ -339,6 +339,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 email_body_preview=email.raw_body_text or email.raw_body_html,
                 intent=intent_result.get("intent"),
                 attachment_urls=email.attachment_urls,
+                resend_email_id=email.zendesk_webhook_id,
             )
             return
 
@@ -562,6 +563,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 email_body_preview=email.raw_body_text or email.raw_body_html,
                 intent=intent_result.get("intent"),
                 attachment_urls=email.attachment_urls,
+                resend_email_id=email.zendesk_webhook_id,
             )
             return
 
@@ -845,6 +847,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                         email_subject=email.subject,
                         email_body_preview=email.raw_body_text,
                         attachment_urls=email.attachment_urls,
+                        resend_email_id=email.zendesk_webhook_id,
                     )
                 else:
                     # Guard approved — proceed with dual write
@@ -906,6 +909,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                             email_subject=email.subject,
                             email_body_preview=email.raw_body_text,
                             attachment_urls=email.attachment_urls,
+                            resend_email_id=email.zendesk_webhook_id,
                         )
 
                         if route.action == RoutingAction.AUTO_UPDATE:
@@ -1005,6 +1009,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 email_subject=email.subject,
                 email_body_preview=email.raw_body_text,
                 attachment_urls=email.attachment_urls,
+                resend_email_id=email.zendesk_webhook_id,
             )
 
         # Step 7: Mark as completed
@@ -1198,6 +1203,7 @@ def _process_second_round(
         email_subject=subject,
         email_body_preview=email_body,
         attachment_urls=email.attachment_urls,
+        resend_email_id=email.zendesk_webhook_id,
     )
 
     logger.info("second_round_processing_complete",
