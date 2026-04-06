@@ -21,6 +21,9 @@ except ImportError:
 
 logger = structlog.get_logger(__name__)
 
+# Date patterns that look like German numbers (DD.MM.YYYY, D.M.YY, etc.)
+_DATE_PATTERN = re.compile(r'^\d{1,2}\.\d{1,2}\.\d{2,4}$')
+
 
 def parse_german_amount(amount_str: str) -> float:
     """
@@ -53,6 +56,10 @@ def parse_german_amount(amount_str: str) -> float:
 
     if not cleaned:
         raise ValueError(f"Empty amount after cleaning: {amount_str}")
+
+    # Reject date-like patterns BEFORE parsing (e.g. "04.12.2024" -> would parse as 4122024)
+    if _DATE_PATTERN.match(cleaned):
+        raise ValueError(f"Rejected date-like pattern as amount: {amount_str}")
 
     log = logger.bind(original=amount_str, cleaned=cleaned)
 

@@ -70,6 +70,8 @@ class EmailBodyExtractor:
 
         # Phone number prefixes to filter (German area codes like 0761, 0234, etc.)
         self._phone_prefixes = re.compile(r'^0\d{2,4}$')
+        # Date patterns that look like German numbers (DD.MM.YYYY, D.M.YY)
+        self._date_pattern = re.compile(r'^\d{1,2}\.\d{1,2}\.\d{2,4}$')
 
     def extract(self, email_text: str) -> SourceExtractionResult:
         """
@@ -145,6 +147,11 @@ class EmailBodyExtractor:
                     amount_str_clean = amount_str.replace('.', '').replace(',', '')
                     if self._phone_prefixes.match(amount_str_clean):
                         logger.debug(f"EmailBodyExtractor: filtered phone number: {amount_str}")
+                        continue
+
+                    # Filter dates (e.g., "04.12.2024" would parse as 4122024)
+                    if self._date_pattern.match(amount_str):
+                        logger.debug(f"EmailBodyExtractor: filtered date pattern: {amount_str}")
                         continue
 
                     # Use babel-based parser

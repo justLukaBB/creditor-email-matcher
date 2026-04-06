@@ -324,6 +324,8 @@ class PDFExtractor:
 
         # Phone number filter
         phone_prefix_re = re.compile(r"^0\d{2,4}$")
+        # Date filter (DD.MM.YYYY patterns that look like German numbers)
+        date_re = re.compile(r"^\d{1,2}\.\d{1,2}\.\d{2,4}$")
 
         # Collect all matches with tier info
         candidates = []
@@ -339,6 +341,11 @@ class PDFExtractor:
                 clean = amount_str.replace(".", "").replace(",", "")
                 if phone_prefix_re.match(clean):
                     log.debug("phone_number_filtered", raw=amount_str)
+                    continue
+
+                # Filter dates (e.g. "04.12.2024" would parse as 4122024)
+                if date_re.match(amount_str):
+                    log.debug("date_pattern_filtered", raw=amount_str)
                     continue
 
                 try:
