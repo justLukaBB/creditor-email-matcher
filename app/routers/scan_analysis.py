@@ -7,7 +7,8 @@ Flow:
 2. Save to temp file
 3. Extract content using PDFExtractor (PyMuPDF for digital, Claude Vision for scanned)
 4. Match client by Aktenzeichen via MongoDB
-5. Return structured analysis result
+5. If client matched: look up creditor in final_creditor_list
+6. Return structured analysis result
 
 Endpoint: POST /api/v1/analyze-scan
 Called by: Portal Backend (server/routes/admin-post-upload.js)
@@ -30,24 +31,37 @@ logger = structlog.get_logger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["scan-analysis"])
 
-# Singleton MongoDB service (lazy-initialized)
 _mongodb_service = MongoDBService()
 
 
-# ── Response Models ────────────────────────────────────────────
+# ── Response Model ─────────────────────────────────────────────
 
 class ScanAnalysisResponse(BaseModel):
     """Response from analyzing a single scanned page."""
+    # Client match
     client_aktenzeichen: Optional[str] = None
     client_name: Optional[str] = None
     client_id: Optional[str] = None
+
+    # Creditor (extracted from document)
     creditor_name: Optional[str] = None
     creditor_email: Optional[str] = None
+
+    # Creditor match from final_creditor_list
+    matched_creditor_name: Optional[str] = Field(None, description="Existing creditor name from client's list")
+    matched_creditor_id: Optional[str] = Field(None, description="Creditor entry ID from final_creditor_list")
+    previous_amount: Optional[float] = Field(None, description="Previous claim_amount from creditor list")
+
+    # Extracted data
     letter_type: Optional[str] = Field(None, description="first or second")
     new_debt_amount: Optional[float] = None
     extraction_confidence: Optional[float] = Field(None, description="0.0-1.0")
+
+    # Status
     match_status: str = Field(default="no_match", description="auto_matched, needs_review, no_match")
     needs_review: bool = True
+
+    # Raw data
     raw_text: Optional[str] = None
     extracted_fields: Optional[dict] = None
     extraction_method: Optional[str] = None
@@ -60,23 +74,13 @@ class ScanAnalysisResponse(BaseModel):
 async def analyze_scan(file: UploadFile = File(...)):
     """
     Analyze a single-page scanned PDF.
-
-    Receives a PDF (typically one page from a split multi-page scan),
-    extracts creditor info, amounts, and attempts client matching.
-
-    Used by the Portal Backend post-upload feature for processing
-    scanned mail that arrives by postal service.
+    Extracts creditor info, amounts, matches client and existing creditor.
     """
     log = logger.bind(filename=file.filename, content_type=file.content_type)
 
-    # Validate file type
     if file.content_type != "application/pdf":
-        raise HTTPException(
-            status_code=400,
-            detail=f"Nur PDF-Dateien erlaubt. Erhalten: {file.content_type}"
-        )
+        raise HTTPException(status_code=400, detail=f"Nur PDF-Dateien erlaubt. Erhalten: {file.content_type}")
 
-    # Save to temp file
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
@@ -86,7 +90,7 @@ async def analyze_scan(file: UploadFile = File(...)):
 
         log.info("scan_received", size_bytes=len(content), tmp_path=tmp_path)
 
-        # Extract content using PDFExtractor
+        # Extract content
         tracker = TokenBudgetTracker()
         extractor = PDFExtractor(token_budget=tracker)
         extraction_result = extractor.extract(tmp_path)
@@ -94,7 +98,7 @@ async def analyze_scan(file: UploadFile = File(...)):
         if extraction_result.error:
             log.warning("extraction_error", error=extraction_result.error)
 
-        # Build response from extraction result
+        # Build response
         response = ScanAnalysisResponse(
             extraction_method=extraction_result.extraction_method,
             raw_text=extraction_result.extracted_text,
@@ -126,17 +130,19 @@ async def analyze_scan(file: UploadFile = File(...)):
             "components": extraction_result.components,
         }
 
-        # Try to match client via MongoDB
-        _try_match_client(response, extracted_client_name, log)
+        # Match client + creditor in MongoDB
+        _try_match_client_and_creditor(response, extracted_client_name, log)
 
-        # Determine letter type heuristic
+        # Determine letter type
         response.letter_type = _detect_letter_type(extraction_result.extracted_text or "")
 
         log.info(
             "scan_analysis_complete",
             match_status=response.match_status,
             creditor_name=response.creditor_name,
+            matched_creditor=response.matched_creditor_name,
             amount=response.new_debt_amount,
+            previous_amount=response.previous_amount,
             confidence=response.extraction_confidence,
             letter_type=response.letter_type,
         )
@@ -147,27 +153,23 @@ async def analyze_scan(file: UploadFile = File(...)):
         raise
     except Exception as e:
         log.error("scan_analysis_failed", error=str(e), exc_info=True)
-        return ScanAnalysisResponse(
-            match_status="no_match",
-            needs_review=True,
-            error=str(e),
-        )
+        return ScanAnalysisResponse(match_status="no_match", needs_review=True, error=str(e))
     finally:
-        # Cleanup temp file
         if tmp_path and os.path.exists(tmp_path):
             os.unlink(tmp_path)
 
 
 # ── Helpers ────────────────────────────────────────────────────
 
-def _try_match_client(
+def _try_match_client_and_creditor(
     response: ScanAnalysisResponse,
     extracted_client_name: Optional[str],
     log,
 ):
     """
-    Attempt to match the extracted data to a client in MongoDB.
-    Uses Aktenzeichen from extracted reference numbers, or client name fallback.
+    1. Match client by Aktenzeichen or name
+    2. If client found: search final_creditor_list for matching creditor
+    3. Populate response with matched data
     """
     if not _mongodb_service.is_available():
         log.warning("mongodb_not_available_for_scan_matching")
@@ -176,10 +178,9 @@ def _try_match_client(
     try:
         clients_collection = _mongodb_service.db['clients']
 
-        # Try matching by reference numbers (Aktenzeichen patterns)
+        # ── Step 1: Find Aktenzeichen in extracted text ────────
         reference_numbers = response.extracted_fields.get("reference_numbers", []) if response.extracted_fields else []
 
-        # Also check raw_text for Aktenzeichen patterns
         if response.raw_text:
             az_patterns = [
                 r'(?:Az\.?|Aktenzeichen|AZ)[:\s]*(\d{2,6}[/_]\d{1,5})',
@@ -193,30 +194,27 @@ def _try_match_client(
             if response.extracted_fields:
                 response.extracted_fields["reference_numbers"] = list(set(reference_numbers))
 
+        # ── Step 2: Find client ────────────────────────────────
         client = None
 
-        # Try each reference number as Aktenzeichen
         for ref in reference_numbers:
             client = clients_collection.find_one({'aktenzeichen': ref})
             if client:
                 response.client_aktenzeichen = ref
                 break
-
-            # Try with slash/underscore normalization
+            # Slash/underscore normalization
             if '/' in ref:
-                normalized = ref.replace('/', '_')
-                client = clients_collection.find_one({'aktenzeichen': normalized})
+                client = clients_collection.find_one({'aktenzeichen': ref.replace('/', '_')})
                 if client:
                     response.client_aktenzeichen = ref
                     break
             elif '_' in ref:
-                normalized = ref.replace('_', '/')
-                client = clients_collection.find_one({'aktenzeichen': normalized})
+                client = clients_collection.find_one({'aktenzeichen': ref.replace('_', '/')})
                 if client:
                     response.client_aktenzeichen = ref
                     break
 
-        # Fallback: try client name
+        # Fallback: client name
         if not client and extracted_client_name:
             name = extracted_client_name.strip()
             if ',' in name:
@@ -233,16 +231,54 @@ def _try_match_client(
                     'lastName': {'$regex': f'^{re.escape(last_name)}$', '$options': 'i'},
                 })
 
-        if client:
-            response.client_id = str(client['_id'])
-            response.client_name = f"{client.get('firstName', '')} {client.get('lastName', '')}"
-            response.client_aktenzeichen = response.client_aktenzeichen or client.get('aktenzeichen')
-            response.match_status = "auto_matched"
-            response.needs_review = False
-            log.info("client_matched", client_id=response.client_id, aktenzeichen=response.client_aktenzeichen)
-        else:
+        if not client:
             response.match_status = "needs_review" if (response.creditor_name or response.new_debt_amount) else "no_match"
             response.needs_review = True
+            return
+
+        # ── Step 3: Populate client data ───────────────────────
+        response.client_id = str(client['_id'])
+        response.client_name = f"{client.get('firstName', '')} {client.get('lastName', '')}"
+        response.client_aktenzeichen = response.client_aktenzeichen or client.get('aktenzeichen')
+
+        # ── Step 4: Find matching creditor in final_creditor_list
+        creditor_list = client.get('final_creditor_list') or []
+        extracted_creditor = (response.creditor_name or "").lower().strip()
+
+        matched_creditor = None
+        if extracted_creditor and creditor_list:
+            matched_creditor = _find_creditor_in_list(extracted_creditor, creditor_list, log)
+
+        if matched_creditor:
+            response.matched_creditor_name = (
+                matched_creditor.get('glaeubiger_name')
+                or matched_creditor.get('sender_name')
+                or matched_creditor.get('actual_creditor')
+            )
+            response.matched_creditor_id = matched_creditor.get('id')
+            response.previous_amount = (
+                matched_creditor.get('current_debt_amount')
+                or matched_creditor.get('claim_amount')
+            )
+            response.match_status = "auto_matched"
+            response.needs_review = False
+            log.info(
+                "creditor_matched",
+                client_id=response.client_id,
+                matched_creditor=response.matched_creditor_name,
+                previous_amount=response.previous_amount,
+            )
+        else:
+            # Client found but creditor not in list — still auto_matched but flag for review
+            response.match_status = "auto_matched"
+            response.needs_review = len(creditor_list) > 0  # Review if list exists but no match
+            log.info(
+                "client_matched_no_creditor",
+                client_id=response.client_id,
+                aktenzeichen=response.client_aktenzeichen,
+                extracted_creditor=extracted_creditor,
+                creditor_list_size=len(creditor_list),
+            )
 
     except Exception as e:
         log.error("client_matching_failed", error=str(e))
@@ -250,12 +286,57 @@ def _try_match_client(
         response.needs_review = True
 
 
+def _find_creditor_in_list(extracted_name: str, creditor_list: list, log) -> Optional[dict]:
+    """
+    Fuzzy match extracted creditor name against final_creditor_list entries.
+    Checks sender_name, glaeubiger_name, glaeubigervertreter_name, actual_creditor.
+    """
+    extracted_words = set(w.lower() for w in extracted_name.split() if len(w) > 2)
+
+    best_match = None
+    best_score = 0
+
+    for creditor in creditor_list:
+        # Check all name fields
+        names_to_check = [
+            creditor.get('sender_name', ''),
+            creditor.get('glaeubiger_name', ''),
+            creditor.get('glaeubigervertreter_name', ''),
+            creditor.get('actual_creditor', ''),
+        ]
+
+        for name in names_to_check:
+            if not name:
+                continue
+            name_lower = name.lower().strip()
+
+            # Exact substring match
+            if extracted_name in name_lower or name_lower in extracted_name:
+                log.debug("creditor_exact_substring", extracted=extracted_name, matched=name)
+                return creditor
+
+            # Word overlap score
+            name_words = set(w.lower() for w in name.split() if len(w) > 2)
+            if not name_words or not extracted_words:
+                continue
+
+            overlap = len(extracted_words & name_words)
+            score = overlap / max(len(extracted_words), len(name_words))
+
+            if score > best_score and score >= 0.4:
+                best_score = score
+                best_match = creditor
+
+    if best_match:
+        log.debug("creditor_fuzzy_match", score=best_score, extracted=extracted_name)
+
+    return best_match
+
+
 def _detect_letter_type(text: str) -> str:
     """
     Heuristic to detect if a scanned letter is a 1. Schreiben (debt statement)
     or 2. Schreiben (settlement response).
-
-    Returns 'first' or 'second'.
     """
     text_lower = text.lower() if text else ""
 
