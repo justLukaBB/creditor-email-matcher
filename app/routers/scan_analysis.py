@@ -14,6 +14,7 @@ Called by: Portal Backend (server/routes/admin-post-upload.js)
 """
 
 import os
+import re
 import tempfile
 from typing import Optional, List
 
@@ -180,7 +181,6 @@ def _try_match_client(
 
         # Also check raw_text for Aktenzeichen patterns
         if response.raw_text:
-            import re
             az_patterns = [
                 r'(?:Az\.?|Aktenzeichen|AZ)[:\s]*(\d{2,6}[/_]\d{1,5})',
                 r'(?:Az\.?|Aktenzeichen|AZ)[:\s]*(\d{4,8})',
