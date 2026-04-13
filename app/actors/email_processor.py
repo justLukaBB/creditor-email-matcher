@@ -277,6 +277,232 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
         db.commit()
 
         # ========================================
+        # PHASE 4: Deterministic Routing
+        # ========================================
+        # Attempt to route email without LLM processing.
+        # If a deterministic match is found, skip Agents 1-3 and MatchingEngineV2.
+
+        from app.services.deterministic_router import DeterministicRouter
+
+        det_router = DeterministicRouter(db)
+        det_result = det_router.route(
+            to_addresses=email.to_addresses,
+            in_reply_to=email.in_reply_to_header,
+            message_id=email.zendesk_ticket_id,
+            from_email=email.from_email,
+            body_text=email.raw_body_text,
+            body_html=email.raw_body_html,
+        )
+
+        # Persist routing attempt on email record
+        email.deterministic_match = det_result.matched
+        if det_result.matched:
+            email.routing_method = det_result.routing_method
+            email.routing_id_parsed = det_result.routing_id_parsed
+            email.deterministic_confidence = det_result.confidence
+            email.deterministic_inquiry_id = det_result.inquiry_id
+        db.commit()
+
+        if det_result.matched:
+            logger.info("deterministic_routing_success", extra={
+                "email_id": email_id,
+                "method": det_result.routing_method,
+                "inquiry_id": det_result.inquiry_id,
+                "confidence": det_result.confidence,
+            })
+            add_breadcrumb(
+                "pipeline",
+                f"Deterministic match: {det_result.routing_method}",
+                data={"inquiry_id": det_result.inquiry_id, "confidence": det_result.confidence}
+            )
+
+            # Skip entire LLM pipeline — go straight to matched inquiry processing
+            matched_inquiry = det_result.inquiry
+            email.matched_inquiry_id = matched_inquiry.id
+            email.match_status = "auto_matched"
+            email.match_confidence = int(det_result.confidence * 100)
+            email.processing_status = "matching"
+
+            # Set confidence values — deterministic match is high confidence
+            email.extraction_confidence = int(det_result.confidence * 100)
+            email.overall_confidence = int(det_result.confidence * 100)
+            email.confidence_route = "high"
+            db.commit()
+
+            # Dual-write to MongoDB
+            from app.services.idempotency import IdempotencyService, generate_idempotency_key
+            from app.services.dual_write import DualDatabaseWriter
+
+            # Still need basic entity extraction for debt amount
+            # Use Claude for quick extraction on deterministic matches
+            from app.services.entity_extractor_claude import entity_extractor_claude
+
+            email_body_for_extraction = (
+                email.cleaned_body or email.raw_body_text or email.raw_body_html
+            )
+            extracted_entities = None
+            new_debt_amount = None
+            reference_numbers = []
+            client_name = matched_inquiry.client_name
+            creditor_name = matched_inquiry.creditor_name or email.from_email
+            client_aktenzeichen = matched_inquiry.reference_number
+
+            if email_body_for_extraction:
+                try:
+                    extracted_entities = entity_extractor_claude.extract_entities(
+                        email_body=email_body_for_extraction,
+                        subject=email.subject,
+                    )
+                    if extracted_entities:
+                        new_debt_amount = extracted_entities.debt_amount
+                        reference_numbers = extracted_entities.reference_numbers or []
+                        email.extracted_data = {
+                            "is_creditor_reply": True,
+                            "client_name": extracted_entities.client_name or client_name,
+                            "creditor_name": extracted_entities.creditor_name or creditor_name,
+                            "debt_amount": new_debt_amount,
+                            "reference_numbers": reference_numbers,
+                            "routing_method": det_result.routing_method,
+                        }
+                        db.commit()
+                except Exception as extract_err:
+                    logger.warning("deterministic_extraction_failed", extra={
+                        "email_id": email_id, "error": str(extract_err)
+                    })
+
+            # Determine letter type
+            letter_type = getattr(matched_inquiry, 'letter_type', 'first') or 'first'
+
+            if letter_type == 'second':
+                # Settlement response — delegate to existing handler
+                from app.services.confidence import calculate_overall_confidence, route_by_confidence
+                confidence_result_obj = type('C', (), {
+                    'extraction': det_result.confidence,
+                    'match': det_result.confidence,
+                    'overall': det_result.confidence,
+                    'weakest_link': 'deterministic',
+                })()
+                route = route_by_confidence(det_result.confidence)
+
+                _process_second_round(
+                    db=db,
+                    email=email,
+                    email_id=email_id,
+                    matched_inquiry=matched_inquiry,
+                    matching_result=None,
+                    client_name=client_name,
+                    client_aktenzeichen=client_aktenzeichen,
+                    creditor_email=email.from_email,
+                    creditor_name=creditor_name,
+                    email_body=email_body_for_extraction,
+                    subject=email.subject,
+                    confidence_result=confidence_result_obj,
+                    route=route,
+                )
+            else:
+                # First round — apply amount update guard and dual-write
+                from app.services.amount_update_guard import should_update_amount
+
+                guard_ok, guard_reason = should_update_amount(
+                    existing_amount=getattr(matched_inquiry, 'debt_amount', None),
+                    new_amount=new_debt_amount,
+                    confidence=det_result.confidence,
+                )
+
+                if guard_ok and new_debt_amount is not None:
+                    idempotency_key = generate_idempotency_key(
+                        operation="creditor_debt_update",
+                        aggregate_id=str(email_id),
+                        payload={
+                            "client_name": client_name,
+                            "creditor_email": email.from_email,
+                            "amount": new_debt_amount,
+                        }
+                    )
+                    idempotency_svc = IdempotencyService(SessionLocal)
+                    dual_writer = DualDatabaseWriter(db, idempotency_svc)
+
+                    result = dual_writer.update_creditor_debt(
+                        email_id=email_id,
+                        client_name=client_name,
+                        client_aktenzeichen=client_aktenzeichen,
+                        creditor_email=email.from_email,
+                        creditor_name=creditor_name,
+                        new_debt_amount=new_debt_amount,
+                        response_text=None,
+                        reference_numbers=reference_numbers,
+                        idempotency_key=idempotency_key,
+                        extraction_confidence=det_result.confidence,
+                    )
+                    db.commit()
+
+                    if result.get("outbox_message_id"):
+                        dual_writer.execute_mongodb_write(result["outbox_message_id"])
+
+                # Notify portal
+                from app.services.portal_notifier import notify_creditor_response
+                notify_creditor_response(
+                    email_id=email_id,
+                    client_aktenzeichen=client_aktenzeichen,
+                    client_name=client_name,
+                    creditor_name=creditor_name,
+                    creditor_email=email.from_email,
+                    new_debt_amount=new_debt_amount,
+                    amount_source="creditor_response",
+                    extraction_confidence=det_result.confidence,
+                    match_status="auto_matched",
+                    confidence_route="high",
+                    needs_review=False,
+                    reference_numbers=reference_numbers,
+                    email_subject=email.subject,
+                    email_body_preview=email.raw_body_text,
+                    attachment_urls=email.attachment_urls,
+                    resend_email_id=email.zendesk_webhook_id,
+                    routing_method=det_result.routing_method,
+                    routing_id=det_result.routing_id_parsed,
+                    deterministic_match=True,
+                    kanzlei_id=getattr(matched_inquiry, 'kanzlei_id', None),
+                )
+
+            # Mark completed and create processing report
+            email.processing_status = "completed"
+            email.completed_at = datetime.utcnow()
+            email.processed_at = datetime.utcnow()
+
+            duration_ms = int((time.time() - start_time) * 1000)
+            try:
+                create_processing_report(
+                    db=db,
+                    email_id=email_id,
+                    extracted_data=email.extracted_data or {},
+                    agent_checkpoints={"deterministic_routing": {
+                        "method": det_result.routing_method,
+                        "inquiry_id": det_result.inquiry_id,
+                        "confidence": det_result.confidence,
+                    }},
+                    overall_confidence=det_result.confidence,
+                    confidence_route="high",
+                    needs_review=False,
+                    review_reason=None,
+                    processing_time_ms=duration_ms,
+                )
+            except Exception as report_error:
+                logger.warning("processing_report_failed", extra={"error": str(report_error), "email_id": email_id})
+
+            db.commit()
+            logger.info("deterministic_processing_completed", extra={
+                "email_id": email_id,
+                "method": det_result.routing_method,
+                "duration_ms": duration_ms,
+            })
+
+            # Record metric
+            metrics.record_confidence("high", det_result.confidence, email_id=email_id)
+
+            # Jump to finally block — skip entire LLM pipeline
+            return
+
+        # ========================================
         # PHASE 5: Multi-Agent Pipeline
         # ========================================
 
@@ -521,11 +747,17 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
         else:
             is_creditor_reply = extracted_entities.is_creditor_reply
 
+        # Merge: Phase 3 pipeline data takes priority over entity extraction.
+        # Use `is not None` instead of `or` to preserve falsy values like 0.0 and "".
+        current_client = current_extracted_data.get("client_name")
+        current_creditor = current_extracted_data.get("creditor_name")
+        current_amount = current_extracted_data.get("debt_amount")
+
         email.extracted_data = {
             "is_creditor_reply": is_creditor_reply,
-            "client_name": current_extracted_data.get("client_name") or extracted_entities.client_name,
-            "creditor_name": current_extracted_data.get("creditor_name") or extracted_entities.creditor_name,
-            "debt_amount": current_extracted_data.get("debt_amount") or extracted_entities.debt_amount,
+            "client_name": current_client if current_client is not None else extracted_entities.client_name,
+            "creditor_name": current_creditor if current_creditor is not None else extracted_entities.creditor_name,
+            "debt_amount": current_amount if current_amount is not None else extracted_entities.debt_amount,
             "reference_numbers": extracted_entities.reference_numbers or [],
             "confidence": current_extracted_data.get("confidence", 0.5),
             "summary": extracted_entities.summary,

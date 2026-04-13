@@ -68,6 +68,11 @@ class EntityExtractorClaude:
         else:
             self.client = Anthropic(api_key=settings.anthropic_api_key)
 
+    # Minimum body length for meaningful extraction (avoids hallucinated amounts)
+    MIN_BODY_LENGTH = 20
+    # Maximum plausible debt amount for Privatinsolvenz in EUR
+    MAX_PLAUSIBLE_AMOUNT = 500_000
+
     def extract_entities(
         self,
         email_body: str,
@@ -96,6 +101,22 @@ class EntityExtractorClaude:
             return ExtractedEntities(
                 is_creditor_reply=False,
                 confidence=0.0
+            )
+
+        # Guard: skip extraction if body is empty or too short to contain meaningful data
+        has_attachments = bool(attachment_texts and any(t.strip() for t in attachment_texts))
+        body_too_short = not email_body or len(email_body.strip()) < self.MIN_BODY_LENGTH
+
+        if body_too_short and not has_attachments:
+            logger.warning(
+                "body_too_short_skipping_extraction",
+                extra={"email_id": email_id,
+                       "body_length": len(email_body.strip()) if email_body else 0}
+            )
+            return ExtractedEntities(
+                is_creditor_reply=False,
+                confidence=0.0,
+                summary="Email body too short for extraction"
             )
 
         # Try to load prompts from database
@@ -184,6 +205,16 @@ class EntityExtractorClaude:
             # Convert to ExtractedEntities
             entities = ExtractedEntities(**result_dict)
 
+            # Sanity check: reject implausible amounts
+            if entities.debt_amount is not None and entities.debt_amount > self.MAX_PLAUSIBLE_AMOUNT:
+                logger.warning(
+                    "implausible_amount_rejected",
+                    extra={"email_id": email_id,
+                           "extracted_amount": entities.debt_amount,
+                           "threshold": self.MAX_PLAUSIBLE_AMOUNT}
+                )
+                entities.debt_amount = None
+
             logger.info(
                 f"Entities extracted - is_creditor: {entities.is_creditor_reply}, "
                 f"confidence: {entities.confidence:.2f}, "
@@ -253,6 +284,8 @@ Extrahiere die folgenden Informationen aus der E-Mail:
    - **WICHTIG**: Gib NUR einen Betrag zurück, wenn die E-Mail einen expliziten Forderungsbetrag enthält
    - Wenn die E-Mail eine Rückfrage ist (z.B. "Bitte korrektes Aktenzeichen angeben"), eine Klarstellung anfordert, oder administrative Inhalte hat: gib `null` zurück
    - **NIEMALS** Beträge aus Telefonnummern (z.B. 0761, 0234, 030), Postleitzahlen (z.B. 79108), Vertragskonto-Nummern, Ticket-IDs oder Aktenzeichen extrahieren
+   - **NIEMALS** Zahlen aus Aktenzeichen (z.B. "AZ 1221/26", "Az.: 123/2026"), Referenznummern, Kundennummern, Vertragsnummern oder Datumsangaben als Beträge extrahieren. Diese sind KEINE Forderungsbeträge.
+   - Extrahiere Beträge NUR aus dem tatsächlichen E-Mail-Body-Text, nicht aus Metadaten oder Headern
    - Im Zweifel: `null` zurückgeben statt einen falschen Betrag zu raten
 5. **reference_numbers**: Alle Referenznummern (Aktenzeichen, Kundennummer, Vertragsnummer, Rechnungsnummer)
 6. **confidence**: Dein Vertrauen in die Extraktion (0.0 = sehr unsicher, 1.0 = sehr sicher)

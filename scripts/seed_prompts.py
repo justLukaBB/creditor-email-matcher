@@ -66,6 +66,10 @@ Extrahiere die folgenden Informationen aus der E-Mail:
    - Der Gläubiger-Name kann auch im Briefkopf, Footer oder in der Absender-Zeile stehen
    - Auch wenn die Email von einer persönlichen Adresse kommt (z.B. gmail.com), schaue in der Signatur nach der Firmenbezeichnung
 4. **debt_amount**: Gesamtschulden in EUR. Suche nach "Forderung", "Betrag", "Schulden"
+   - **WICHTIG**: Gib NUR einen Betrag zurück, wenn die E-Mail einen expliziten Forderungsbetrag enthält
+   - **NIEMALS** Zahlen aus Aktenzeichen (z.B. "AZ 1221/26"), Referenznummern, Kundennummern, Vertragsnummern, Telefonnummern, Postleitzahlen oder Datumsangaben als Beträge extrahieren
+   - Extrahiere Beträge NUR aus dem tatsächlichen E-Mail-Body-Text
+   - Im Zweifel: `null` zurückgeben statt einen falschen Betrag zu raten
 5. **reference_numbers**: Alle Referenznummern (Aktenzeichen, Kundennummer, Vertragsnummer, Rechnungsnummer)
 6. **confidence**: Dein Vertrauen in die Extraktion (0.0 = sehr unsicher, 1.0 = sehr sicher)
 7. **summary**: Kurze 1-2 Satz Zusammenfassung der E-Mail

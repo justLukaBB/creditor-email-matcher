@@ -3,8 +3,8 @@ IncomingEmail Model
 Stores incoming creditor responses received via Zendesk webhook
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, JSON
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, Integer, String, DateTime, Text, Boolean, JSON, Float
+from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -96,6 +96,15 @@ class IncomingEmail(Base):
     sync_error = Column(Text, nullable=True)
     sync_retry_count = Column(Integer, default=0, nullable=False)
     idempotency_key = Column(String(255), nullable=True, unique=True)
+
+    # Deterministic Routing (Phase 4: DeterministicRouter)
+    to_addresses = Column(ARRAY(String), nullable=True)  # All To/CC addresses from inbound email
+    in_reply_to_header = Column(String(500), nullable=True)  # In-Reply-To header value
+    routing_method = Column(String(50), nullable=True)  # reply_to_address, in_reply_to_header, body_reference, from_address_unique
+    routing_id_parsed = Column(String(20), nullable=True, index=True)  # Parsed routing ID (e.g. "SC-A1221-42")
+    deterministic_match = Column(Boolean, nullable=True)  # True if matched via DeterministicRouter
+    deterministic_confidence = Column(Float, nullable=True)  # Confidence from deterministic routing (0.0-1.0)
+    deterministic_inquiry_id = Column(Integer, nullable=True, index=True)  # Matched inquiry ID from deterministic routing
 
     # Multi-Agent Pipeline Checkpoints (Phase 5: Multi-Agent Pipeline Validation)
     agent_checkpoints = Column(JSONB, nullable=True)

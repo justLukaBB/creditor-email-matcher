@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     claude_output_cost_per_million: float = 15.0  # Sonnet 4.5 pricing: $15/M output
 
     # Matching Engine Configuration (Phase 6)
-    match_lookback_days: int = 30  # creditor_inquiries window
+    match_lookback_days: int = 90  # creditor_inquiries window (increased from 30d for late creditor responses)
     match_threshold_high: float = 0.85  # High confidence threshold
     match_threshold_medium: float = 0.70  # Medium confidence threshold
 

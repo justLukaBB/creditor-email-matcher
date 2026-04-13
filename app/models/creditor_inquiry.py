@@ -48,6 +48,12 @@ class CreditorInquiry(Base):
     # Letter Type (1. Schreiben vs 2. Schreiben/Schuldenbereinigungsplan)
     letter_type = Column(String(20), default="first", nullable=False, server_default="first")
 
+    # Deterministic Routing (Phase 3)
+    routing_id = Column(String(20), nullable=True, index=True)  # e.g. "SC-A1221-42"
+    resend_message_id = Column(String(500), nullable=True, index=True)  # Message-ID header for In-Reply-To matching
+    kanzlei_id = Column(String(50), nullable=True, index=True)
+    kanzlei_prefix = Column(String(3), nullable=True)
+
     # Status Tracking
     status = Column(String(50), default="sent")  # sent, replied, no_response, etc.
     response_received = Column(Boolean, default=False)

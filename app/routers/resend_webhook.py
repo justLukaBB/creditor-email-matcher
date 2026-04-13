@@ -43,7 +43,7 @@ async def fetch_email_content_from_resend(email_id: str) -> dict:
     """
     if not settings.resend_api_key:
         logger.warning("resend_api_key_not_configured")
-        return {"html": None, "text": None}
+        return {"html": None, "text": None, "in_reply_to": None, "headers": {}}
 
     try:
         async with httpx.AsyncClient() as client:
@@ -64,12 +64,18 @@ async def fetch_email_content_from_resend(email_id: str) -> dict:
                     email_id=email_id,
                     has_html=bool(data.get("html")),
                     has_text=bool(data.get("text")),
-                    has_body=bool(data.get("body"))
+                    has_body=bool(data.get("body")),
+                    has_in_reply_to=bool(data.get("in_reply_to")),
                 )
                 # Resend may return body as 'body', 'text', or 'html'
+                # Also extract In-Reply-To header and raw headers for deterministic routing
+                headers = data.get("headers", {}) or {}
+                in_reply_to = data.get("in_reply_to") or headers.get("in-reply-to") or headers.get("In-Reply-To")
                 return {
                     "html": data.get("html"),
-                    "text": data.get("text") or data.get("body")
+                    "text": data.get("text") or data.get("body"),
+                    "in_reply_to": in_reply_to,
+                    "headers": headers,
                 }
             else:
                 logger.warning(
@@ -78,11 +84,11 @@ async def fetch_email_content_from_resend(email_id: str) -> dict:
                     status=response.status_code,
                     response=response.text[:500]
                 )
-                return {"html": None, "text": None}
+                return {"html": None, "text": None, "in_reply_to": None, "headers": {}}
 
     except Exception as e:
         logger.error("resend_email_fetch_error", email_id=email_id, error=str(e))
-        return {"html": None, "text": None}
+        return {"html": None, "text": None, "in_reply_to": None, "headers": {}}
 
 
 async def fetch_attachment_download_url(email_id: str, attachment_id: str) -> Optional[str]:
@@ -330,12 +336,26 @@ async def receive_resend_webhook(
     # Inbound webhooks only contain metadata, not the email body
     email_html = email_data.html
     email_text = email_data.text
+    in_reply_to = None
 
     if not email_html and not email_text:
         logger.info("fetching_email_content_from_resend_api", email_id=email_data.email_id)
         content = await fetch_email_content_from_resend(email_data.email_id)
         email_html = content.get("html")
         email_text = content.get("text")
+        in_reply_to = content.get("in_reply_to")
+    else:
+        # Even if body was in webhook, still fetch for In-Reply-To header
+        try:
+            content = await fetch_email_content_from_resend(email_data.email_id)
+            in_reply_to = content.get("in_reply_to")
+        except Exception:
+            pass  # Non-critical — deterministic routing will fall through
+
+    # Collect all recipient addresses (To + CC) for deterministic routing
+    all_to_addresses = list(email_data.to or [])
+    if email_data.cc:
+        all_to_addresses.extend(email_data.cc)
 
     # Step 7: Store incoming email with RECEIVED status
     incoming_email = IncomingEmail(
@@ -346,6 +366,8 @@ async def receive_resend_webhook(
         subject=email_data.subject,
         raw_body_html=email_html,
         raw_body_text=email_text,
+        to_addresses=all_to_addresses if all_to_addresses else None,
+        in_reply_to_header=in_reply_to,
         attachment_urls=[
             {"id": att.id, "filename": att.filename, "content_type": att.content_type}
             for att in (email_data.attachments or [])

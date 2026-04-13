@@ -55,6 +55,11 @@ class InquiryCreate(BaseModel):
     document_url: Optional[str] = None
     notes: Optional[str] = None
 
+    # Deterministic routing (Phase 3)
+    routing_id: Optional[str] = None
+    kanzlei_id: Optional[str] = None
+    kanzlei_prefix: Optional[str] = None
+
 
 class InquiryResponse(BaseModel):
     """Response schema for created inquiry."""
@@ -151,6 +156,11 @@ async def create_inquiry(
 
         # Letter type
         letter_type=inquiry.letter_type,
+
+        # Deterministic routing (Phase 3)
+        routing_id=inquiry.routing_id,
+        kanzlei_id=inquiry.kanzlei_id,
+        kanzlei_prefix=inquiry.kanzlei_prefix,
 
         # Timing
         sent_at=inquiry.sent_at or datetime.utcnow(),

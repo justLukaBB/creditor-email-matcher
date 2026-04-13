@@ -16,6 +16,7 @@ from app.routers.manual_review import router as manual_review_router
 from app.routers.resend_webhook import router as resend_router
 from app.routers.inquiries import router as inquiries_router
 from app.routers.scan_analysis import router as scan_analysis_router
+from app.routers.bounce_webhook import router as bounce_router
 from app.middleware.correlation_id import CorrelationIdMiddleware
 from app.services.monitoring.logging import setup_logging
 from app.services.monitoring.error_tracking import init_sentry
@@ -46,6 +47,7 @@ app.include_router(manual_review_router)
 app.include_router(resend_router)
 app.include_router(inquiries_router)
 app.include_router(scan_analysis_router)
+app.include_router(bounce_router)
 
 
 @app.on_event("startup")

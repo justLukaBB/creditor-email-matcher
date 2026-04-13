@@ -32,8 +32,8 @@ from app.config import settings
 
 logger = structlog.get_logger(__name__)
 
-# Default lookback window (CONTEXT.MD: 30 days)
-DEFAULT_LOOKBACK_DAYS = 30
+# Default lookback window — sourced from config (env: MATCH_LOOKBACK_DAYS, default 90)
+DEFAULT_LOOKBACK_DAYS = settings.match_lookback_days
 
 
 @dataclass
@@ -160,7 +160,7 @@ class MatchingEngineV2:
             return MatchingResult(
                 status="no_recent_inquiry",
                 needs_review=True,
-                review_reason="No inquiries sent in last 30 days"
+                review_reason=f"No inquiries sent in last {self.lookback_days} days"
             )
 
         log.info("candidates_found", count=len(candidates))

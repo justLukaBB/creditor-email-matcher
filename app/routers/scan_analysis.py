@@ -71,12 +71,16 @@ class ScanAnalysisResponse(BaseModel):
 # ── Endpoint ───────────────────────────────────────────────────
 
 @router.post("/analyze-scan", response_model=ScanAnalysisResponse)
-async def analyze_scan(file: UploadFile = File(...)):
+async def analyze_scan(file: UploadFile = File(...), kanzlei_id: Optional[str] = None):
     """
     Analyze a single-page scanned PDF.
     Extracts creditor info, amounts, matches client and existing creditor.
+
+    Args:
+        file: Single-page PDF
+        kanzlei_id: Optional tenant filter — restricts client matching to this kanzlei
     """
-    log = logger.bind(filename=file.filename, content_type=file.content_type)
+    log = logger.bind(filename=file.filename, content_type=file.content_type, kanzlei_id=kanzlei_id)
 
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=400, detail=f"Nur PDF-Dateien erlaubt. Erhalten: {file.content_type}")
@@ -130,8 +134,8 @@ async def analyze_scan(file: UploadFile = File(...)):
             "components": extraction_result.components,
         }
 
-        # Match client + creditor in MongoDB
-        _try_match_client_and_creditor(response, extracted_client_name, log)
+        # Match client + creditor in MongoDB (scoped to kanzlei if provided)
+        _try_match_client_and_creditor(response, extracted_client_name, log, kanzlei_id=kanzlei_id)
 
         # Determine letter type
         response.letter_type = _detect_letter_type(extraction_result.extracted_text or "")
@@ -165,9 +169,10 @@ def _try_match_client_and_creditor(
     response: ScanAnalysisResponse,
     extracted_client_name: Optional[str],
     log,
+    kanzlei_id: Optional[str] = None,
 ):
     """
-    1. Match client by Aktenzeichen or name
+    1. Match client by Aktenzeichen or name (scoped to kanzlei if provided)
     2. If client found: search final_creditor_list for matching creditor
     3. Populate response with matched data
     """
@@ -177,6 +182,9 @@ def _try_match_client_and_creditor(
 
     try:
         clients_collection = _mongodb_service.db['clients']
+
+        # Tenant filter — only match clients belonging to this kanzlei
+        tenant_filter = {'kanzleiId': kanzlei_id} if kanzlei_id else {}
 
         # ── Step 1: Find Aktenzeichen in extracted text ────────
         reference_numbers = response.extracted_fields.get("reference_numbers", []) if response.extracted_fields else []
@@ -194,22 +202,22 @@ def _try_match_client_and_creditor(
             if response.extracted_fields:
                 response.extracted_fields["reference_numbers"] = list(set(reference_numbers))
 
-        # ── Step 2: Find client ────────────────────────────────
+        # ── Step 2: Find client (tenant-scoped) ───────────────
         client = None
 
         for ref in reference_numbers:
-            client = clients_collection.find_one({'aktenzeichen': ref})
+            client = clients_collection.find_one({'aktenzeichen': ref, **tenant_filter})
             if client:
                 response.client_aktenzeichen = ref
                 break
             # Slash/underscore normalization
             if '/' in ref:
-                client = clients_collection.find_one({'aktenzeichen': ref.replace('/', '_')})
+                client = clients_collection.find_one({'aktenzeichen': ref.replace('/', '_'), **tenant_filter})
                 if client:
                     response.client_aktenzeichen = ref
                     break
             elif '_' in ref:
-                client = clients_collection.find_one({'aktenzeichen': ref.replace('_', '/')})
+                client = clients_collection.find_one({'aktenzeichen': ref.replace('_', '/'), **tenant_filter})
                 if client:
                     response.client_aktenzeichen = ref
                     break
@@ -229,6 +237,7 @@ def _try_match_client_and_creditor(
                 client = clients_collection.find_one({
                     'firstName': {'$regex': f'^{re.escape(first_name)}$', '$options': 'i'},
                     'lastName': {'$regex': f'^{re.escape(last_name)}$', '$options': 'i'},
+                    **tenant_filter,
                 })
 
         if not client:

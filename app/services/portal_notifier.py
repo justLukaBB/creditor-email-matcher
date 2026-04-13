@@ -44,6 +44,10 @@ def notify_creditor_response(
     intent: Optional[str] = None,
     attachment_urls: Optional[List[dict]] = None,
     resend_email_id: Optional[str] = None,
+    routing_method: Optional[str] = None,
+    routing_id: Optional[str] = None,
+    deterministic_match: bool = False,
+    kanzlei_id: Optional[str] = None,
 ) -> None:
     """
     Send webhook notification to Mandanten Portal (fire-and-forget).
@@ -88,6 +92,10 @@ def notify_creditor_response(
         "intent": intent,
         "attachments": attachment_urls or [],
         "resend_email_id": resend_email_id,
+        "routing_method": routing_method,
+        "routing_id": routing_id,
+        "deterministic_match": deterministic_match,
+        "kanzlei_id": kanzlei_id,
         "processed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
