@@ -338,8 +338,11 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
             # Use Claude for quick extraction on deterministic matches
             from app.services.entity_extractor_claude import entity_extractor_claude
 
+            # Prefer raw body for deterministic matches — the email parser
+            # can strip the entire body (100% reduction) when EmailReplyParser
+            # misclassifies the content as quoted text.
             email_body_for_extraction = (
-                email.cleaned_body or email.raw_body_text or email.raw_body_html
+                email.raw_body_text or email.raw_body_html or email.cleaned_body
             )
             extracted_entities = None
             new_debt_amount = None
