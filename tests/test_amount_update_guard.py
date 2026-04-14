@@ -173,6 +173,41 @@ class TestAmountUpdateGuard:
         assert ok is True
         assert reason == "amount_update_approved"
 
+    def test_implausible_amount_blocked(self):
+        """Amounts exceeding 500k EUR should be blocked as implausible."""
+        ok, reason = should_update_amount(
+            existing_amount=None, new_amount=25_032_026.0, confidence=0.9
+        )
+        assert ok is False
+        assert "implausible_amount" in reason
+
+    def test_amount_at_500k_approved(self):
+        """Amount exactly at 500k should be approved."""
+        ok, reason = should_update_amount(
+            existing_amount=None, new_amount=500_000.0, confidence=0.9
+        )
+        assert ok is True
+        assert reason == "amount_update_approved"
+
+    def test_amount_just_above_500k_blocked(self):
+        """Amount just above 500k should be blocked."""
+        ok, reason = should_update_amount(
+            existing_amount=None, new_amount=500_001.0, confidence=0.9
+        )
+        assert ok is False
+        assert "implausible_amount" in reason
+
+    def test_custom_max_plausible_amount(self):
+        """Custom max_plausible_amount should be respected."""
+        ok, reason = should_update_amount(
+            existing_amount=None,
+            new_amount=200_000.0,
+            confidence=0.9,
+            max_plausible_amount=100_000.0,
+        )
+        assert ok is False
+        assert "implausible_amount" in reason
+
 
 class TestIntentBasedAmountGating:
     """Tests for intent-based amount gating logic (before Amount Update Guard)."""

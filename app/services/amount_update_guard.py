@@ -4,10 +4,11 @@ Amount Update Guard
 Prevents silent data downgrades by checking whether a newly extracted amount
 should overwrite the existing database value.
 
-The guard enforces three safety rules:
+The guard enforces four safety rules:
 1. Never write None amounts to the database
-2. Never write low-confidence extractions
-3. Never downgrade an existing amount to a lower value
+2. Never write implausible amounts (> 500k EUR)
+3. Never write low-confidence extractions
+4. Never downgrade an existing amount to a lower value
 """
 
 from typing import Optional, Tuple
@@ -17,6 +18,7 @@ import structlog
 logger = structlog.get_logger(__name__)
 
 CONFIDENCE_THRESHOLD = 0.75
+MAX_PLAUSIBLE_AMOUNT = 500_000  # 500k EUR upper bound for Privatinsolvenz
 
 
 def should_update_amount(
@@ -24,6 +26,7 @@ def should_update_amount(
     new_amount: Optional[float],
     confidence: float,
     confidence_threshold: float = CONFIDENCE_THRESHOLD,
+    max_plausible_amount: float = MAX_PLAUSIBLE_AMOUNT,
 ) -> Tuple[bool, str]:
     """
     Determine whether a new extracted amount should overwrite the existing DB value.
@@ -37,12 +40,15 @@ def should_update_amount(
         new_amount: Newly extracted amount (None if extraction found nothing)
         confidence: Extraction confidence as a float (0.0 - 1.0)
         confidence_threshold: Minimum confidence required to write
+        max_plausible_amount: Upper bound for plausible amounts (default 500k EUR)
 
     Returns:
         Tuple of (should_update: bool, reason: str)
     """
     if new_amount is None:
         decision, reason = False, "extraction_returned_none"
+    elif new_amount > max_plausible_amount:
+        decision, reason = False, f"implausible_amount_{new_amount:.2f}_exceeds_{max_plausible_amount:.0f}"
     elif confidence < confidence_threshold:
         decision, reason = False, "low_extraction_confidence"
     elif existing_amount is not None and new_amount < existing_amount:
