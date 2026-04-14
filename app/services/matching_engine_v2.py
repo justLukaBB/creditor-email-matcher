@@ -99,7 +99,8 @@ class MatchingEngineV2:
         self,
         db: Session,
         strategy: Optional["MatchingStrategy"] = None,
-        lookback_days: int = DEFAULT_LOOKBACK_DAYS
+        lookback_days: int = DEFAULT_LOOKBACK_DAYS,
+        kanzlei_id: Optional[str] = None
     ):
         """
         Initialize matching engine.
@@ -108,15 +109,18 @@ class MatchingEngineV2:
             db: SQLAlchemy session
             strategy: Matching strategy (default: CombinedStrategy)
             lookback_days: Days to look back for creditor_inquiries (default: 30)
+            kanzlei_id: Tenant ID — if set, only match against this kanzlei's inquiries
         """
         self.db = db
         self.strategy = strategy or CombinedStrategy()
         self.lookback_days = lookback_days
+        self.kanzlei_id = kanzlei_id
         self.threshold_manager = ThresholdManager(db)
 
         logger.info("matching_engine_v2_initialized",
                    strategy=type(self.strategy).__name__,
-                   lookback_days=self.lookback_days)
+                   lookback_days=self.lookback_days,
+                   kanzlei_id=self.kanzlei_id)
 
     def find_match(
         self,
@@ -238,6 +242,9 @@ class MatchingEngineV2:
         CONTEXT.MD: Only consider pairs where we sent an inquiry in the last 30 days.
         This is the key optimization that narrows the search space.
 
+        Multi-tenant isolation: When kanzlei_id is set, ALL queries are scoped
+        to that tenant. This prevents cross-tenant data leakage.
+
         Priority matching:
         1. Exact email match (from_email == creditor_email)
         2. Domain match (same domain)
@@ -248,11 +255,19 @@ class MatchingEngineV2:
         # Extract domain from sender email
         sender_domain = from_email.split('@')[-1].lower() if '@' in from_email else None
 
+        # Base filter — always applied
+        base_filters = [
+            CreditorInquiry.sent_at >= lookback_date,
+            CreditorInquiry.sent_at <= received_at,
+        ]
+        # Tenant isolation: scope to kanzlei if known
+        if self.kanzlei_id:
+            base_filters.append(CreditorInquiry.kanzlei_id == self.kanzlei_id)
+
         # First try: Exact email match
         exact_matches = self.db.query(CreditorInquiry).filter(
             and_(
-                CreditorInquiry.sent_at >= lookback_date,
-                CreditorInquiry.sent_at <= received_at,
+                *base_filters,
                 CreditorInquiry.creditor_email == from_email
             )
         ).order_by(
@@ -262,6 +277,7 @@ class MatchingEngineV2:
         if exact_matches:
             logger.debug("exact_email_match_found",
                         from_email=from_email,
+                        kanzlei_id=self.kanzlei_id,
                         count=len(exact_matches))
             return exact_matches
 
@@ -269,8 +285,7 @@ class MatchingEngineV2:
         if sender_domain:
             domain_matches = self.db.query(CreditorInquiry).filter(
                 and_(
-                    CreditorInquiry.sent_at >= lookback_date,
-                    CreditorInquiry.sent_at <= received_at,
+                    *base_filters,
                     CreditorInquiry.creditor_email.ilike(f'%@{sender_domain}')
                 )
             ).order_by(
@@ -281,21 +296,20 @@ class MatchingEngineV2:
                 logger.debug("domain_match_found",
                             from_email=from_email,
                             domain=sender_domain,
+                            kanzlei_id=self.kanzlei_id,
                             count=len(domain_matches))
                 return domain_matches
 
-        # Fallback: All inquiries in time window (for manual review scenarios)
+        # Fallback: All inquiries in time window (scoped to kanzlei)
         all_candidates = self.db.query(CreditorInquiry).filter(
-            and_(
-                CreditorInquiry.sent_at >= lookback_date,
-                CreditorInquiry.sent_at <= received_at,
-            )
+            and_(*base_filters)
         ).order_by(
             CreditorInquiry.sent_at.desc()
         ).all()
 
         logger.debug("fallback_to_all_candidates",
                     from_email=from_email,
+                    kanzlei_id=self.kanzlei_id,
                     count=len(all_candidates))
 
         return all_candidates

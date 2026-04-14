@@ -97,6 +97,9 @@ class IncomingEmail(Base):
     sync_retry_count = Column(Integer, default=0, nullable=False)
     idempotency_key = Column(String(255), nullable=True, unique=True)
 
+    # Tenant Isolation (Multi-Kanzlei)
+    kanzlei_id = Column(String(50), nullable=True, index=True)  # Extracted from to-address domain or routing ID prefix
+
     # Deterministic Routing (Phase 4: DeterministicRouter)
     to_addresses = Column(ARRAY(String), nullable=True)  # All To/CC addresses from inbound email
     in_reply_to_header = Column(String(500), nullable=True)  # In-Reply-To header value

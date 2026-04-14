@@ -25,9 +25,98 @@ from asgi_correlation_id.context import correlation_id
 from app.database import get_db
 from app.config import settings
 from app.models.webhook_schemas import WebhookResponse
-from app.models import IncomingEmail
+from app.models import IncomingEmail, CreditorInquiry
 
 logger = structlog.get_logger()
+
+# Patterns for extracting kanzlei context from to-addresses and routing IDs
+import re
+_INSOCORE_DOMAIN_RE = re.compile(r"@([a-z]{2,3})\.insocore\.de$", re.IGNORECASE)
+_REPLY_ROUTING_RE = re.compile(
+    r"reply-([A-Z]{2,3})-[A-Za-z0-9]+-\d+@",
+    re.IGNORECASE,
+)
+_ROUTING_ID_RE = re.compile(r"(?:RAV-)?([A-Z]{2,3})-A\d+-\d{2,}", re.IGNORECASE)
+# Combined reference: {AZ}/{PREFIX}-{POS} e.g. "2025-00042/SC-03"
+_COMBINED_REF_RE = re.compile(r"[\w.-]*\d[\w.-]*/([A-Z]{2,3})-\d{2,}", re.IGNORECASE)
+
+
+def extract_kanzlei_id_from_email(
+    to_addresses: List[str],
+    subject: Optional[str],
+    body_text: Optional[str],
+    db: Session,
+) -> Optional[str]:
+    """
+    Extract kanzlei_id from inbound email context.
+
+    Strategy (first match wins):
+    1. Kanzlei subdomain in to-address: kanzlei@sc.insocore.de → prefix "SC"
+    2. Routing ID in reply-to address: reply-SC-A1221-42@reply.insocore.de → prefix "SC"
+    3. Routing ID in subject line: SC-A1221-42 → prefix "SC"
+    4. Routing ID in body: RAV-SC-A1221-42 → prefix "SC"
+
+    Then lookup kanzlei_id from creditor_inquiries by prefix.
+    """
+    prefix = None
+
+    # Strategy 1: Kanzlei subdomain (e.g. kanzlei@sc.insocore.de)
+    for addr in (to_addresses or []):
+        m = _INSOCORE_DOMAIN_RE.search(addr)
+        if m:
+            candidate = m.group(1).upper()
+            # Exclude shared domains (reply, bounce)
+            if candidate not in ("REPLY", "BOUNCE"):
+                prefix = candidate
+                break
+
+    # Strategy 2: Routing ID in reply-to address
+    if not prefix:
+        for addr in (to_addresses or []):
+            m = _REPLY_ROUTING_RE.search(addr)
+            if m:
+                prefix = m.group(1).upper()
+                break
+
+    # Strategy 3: Routing ID in subject
+    if not prefix and subject:
+        m = _ROUTING_ID_RE.search(subject)
+        if m:
+            prefix = m.group(1).upper()
+
+    # Strategy 3.5: Combined reference in subject (e.g. "2025-00042/SC-03")
+    if not prefix and subject:
+        m = _COMBINED_REF_RE.search(subject)
+        if m:
+            prefix = m.group(1).upper()
+
+    # Strategy 4: Routing ID in body
+    if not prefix and body_text:
+        m = _ROUTING_ID_RE.search(body_text)
+        if m:
+            prefix = m.group(1).upper()
+
+    # Strategy 4.5: Combined reference in body
+    if not prefix and body_text:
+        m = _COMBINED_REF_RE.search(body_text)
+        if m:
+            prefix = m.group(1).upper()
+
+    if not prefix:
+        return None
+
+    # Lookup kanzlei_id from creditor_inquiries (most recent with this prefix)
+    inquiry = db.query(CreditorInquiry.kanzlei_id).filter(
+        CreditorInquiry.kanzlei_prefix == prefix,
+        CreditorInquiry.kanzlei_id.isnot(None),
+    ).first()
+
+    if inquiry:
+        logger.info("kanzlei_extracted", prefix=prefix, kanzlei_id=inquiry.kanzlei_id)
+        return inquiry.kanzlei_id
+
+    logger.warning("kanzlei_prefix_found_but_no_id", prefix=prefix)
+    return None
 
 
 async def fetch_email_content_from_resend(email_id: str) -> dict:
@@ -357,6 +446,14 @@ async def receive_resend_webhook(
     if email_data.cc:
         all_to_addresses.extend(email_data.cc)
 
+    # Step 6b: Extract kanzlei_id for tenant isolation
+    kanzlei_id = extract_kanzlei_id_from_email(
+        to_addresses=all_to_addresses,
+        subject=email_data.subject,
+        body_text=email_text,
+        db=db,
+    )
+
     # Step 7: Store incoming email with RECEIVED status
     incoming_email = IncomingEmail(
         zendesk_ticket_id=email_data.message_id or email_data.email_id,  # Use message_id as reference
@@ -368,6 +465,7 @@ async def receive_resend_webhook(
         raw_body_text=email_text,
         to_addresses=all_to_addresses if all_to_addresses else None,
         in_reply_to_header=in_reply_to,
+        kanzlei_id=kanzlei_id,
         attachment_urls=[
             {"id": att.id, "filename": att.filename, "content_type": att.content_type}
             for att in (email_data.attachments or [])

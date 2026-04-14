@@ -284,12 +284,13 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
 
         from app.services.deterministic_router import DeterministicRouter
 
-        det_router = DeterministicRouter(db)
+        det_router = DeterministicRouter(db, kanzlei_id=email.kanzlei_id)
         det_result = det_router.route(
             to_addresses=email.to_addresses,
             in_reply_to=email.in_reply_to_header,
             message_id=email.zendesk_ticket_id,
             from_email=email.from_email,
+            subject=email.subject,
             body_text=email.raw_body_text,
             body_html=email.raw_body_html,
         )
@@ -839,7 +840,8 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
         # Create MatchingEngineV2 instance
         engine = MatchingEngineV2(
             db=db,
-            lookback_days=settings.match_lookback_days
+            lookback_days=settings.match_lookback_days,
+            kanzlei_id=email.kanzlei_id
         )
 
         # Build matching input from extracted data

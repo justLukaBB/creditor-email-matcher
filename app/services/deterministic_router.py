@@ -31,6 +31,15 @@ REPLY_TO_PATTERN = re.compile(
 BODY_RAV_PATTERN = re.compile(
     r"RAV-([A-Z]{2,3}-[A-Za-z0-9]+-\d+)",
 )
+# Matches bare routing IDs in subject/body: SC-A1221-42 (without RAV- prefix)
+BARE_ROUTING_ID_PATTERN = re.compile(
+    r"\b([A-Z]{2,3}-A\d+-\d{2,}(?:-[a-z])?)\b",
+)
+# Matches combined per-creditor reference: {AZ}/{PREFIX}-{POS}
+# e.g. "2025-00042/SC-03" or "AZ-1221/ES-12"
+COMBINED_REF_PATTERN = re.compile(
+    r"([\w.-]*\d[\w.-]*)/([A-Z]{2,3})-(\d{2,})",
+)
 
 
 @dataclass
@@ -51,8 +60,9 @@ class DeterministicRouter:
     Each stage is tried in order. First match wins.
     """
 
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, kanzlei_id: Optional[str] = None):
         self.db = db
+        self.kanzlei_id = kanzlei_id
 
     # Pattern to extract kanzlei prefix from insocore subdomain
     INSOCORE_DOMAIN_PATTERN = re.compile(
@@ -65,11 +75,12 @@ class DeterministicRouter:
         in_reply_to: Optional[str] = None,
         message_id: Optional[str] = None,
         from_email: Optional[str] = None,
+        subject: Optional[str] = None,
         body_text: Optional[str] = None,
         body_html: Optional[str] = None,
     ) -> RoutingResult:
         """
-        Attempt deterministic routing through all 4 stages.
+        Attempt deterministic routing through 5 stages.
 
         Returns RoutingResult with matched=True if a definitive match is found.
         """
@@ -88,7 +99,12 @@ class DeterministicRouter:
         if result.matched:
             return result
 
-        # Stage 4: From-address DB lookup
+        # Stage 3.5: Bare routing ID in subject or body (e.g. "SC-A1221-42")
+        result = self._stage_subject_reference(subject, body_text, body_html)
+        if result.matched:
+            return result
+
+        # Stage 4: From-address DB lookup (scoped to kanzlei)
         result = self._stage_from_address(from_email)
         if result.matched:
             return result
@@ -136,9 +152,12 @@ class DeterministicRouter:
         if not clean_id:
             return RoutingResult(matched=False)
 
-        inquiry = self.db.query(CreditorInquiry).filter(
+        query = self.db.query(CreditorInquiry).filter(
             CreditorInquiry.resend_message_id == clean_id
-        ).first()
+        )
+        if self.kanzlei_id:
+            query = query.filter(CreditorInquiry.kanzlei_id == self.kanzlei_id)
+        inquiry = query.first()
 
         if inquiry:
             logger.info("deterministic_match_message_id", extra={
@@ -183,20 +202,110 @@ class DeterministicRouter:
 
         return RoutingResult(matched=False)
 
+    def _stage_subject_reference(
+        self, subject: Optional[str], body_text: Optional[str], body_html: Optional[str]
+    ) -> RoutingResult:
+        """Stage 3.5: Find routing reference in subject or body.
+
+        Checks two patterns:
+        1. Combined reference: "2025-00042/SC-03" → lookup by kanzlei_prefix + position
+        2. Bare routing ID: "SC-A1221-42" → lookup by routing_id
+        """
+        for text in (subject, body_text, body_html):
+            if not text:
+                continue
+
+            # Try combined reference first (e.g. "2025-00042/SC-03")
+            cmatch = COMBINED_REF_PATTERN.search(text)
+            if cmatch:
+                aktenzeichen = cmatch.group(1)
+                prefix = cmatch.group(2).upper()
+                position = int(cmatch.group(3))
+                inquiry = self._lookup_by_combined_ref(prefix, position, aktenzeichen)
+                if inquiry:
+                    combined_ref = f"{aktenzeichen}/{prefix}-{str(position).zfill(2)}"
+                    logger.info("deterministic_match_combined_ref", extra={
+                        "combined_ref": combined_ref,
+                        "inquiry_id": inquiry.id,
+                    })
+                    return RoutingResult(
+                        matched=True,
+                        inquiry_id=inquiry.id,
+                        inquiry=inquiry,
+                        routing_method="combined_reference",
+                        routing_id_parsed=inquiry.routing_id,
+                        confidence=0.94,
+                    )
+
+            # Fall back to bare routing ID (e.g. "SC-A1221-42")
+            match = BARE_ROUTING_ID_PATTERN.search(text)
+            if match:
+                routing_id = match.group(1).upper()
+                inquiry = self._lookup_by_routing_id(routing_id)
+                if inquiry:
+                    logger.info("deterministic_match_subject_ref", extra={
+                        "routing_id": routing_id,
+                        "inquiry_id": inquiry.id,
+                    })
+                    return RoutingResult(
+                        matched=True,
+                        inquiry_id=inquiry.id,
+                        inquiry=inquiry,
+                        routing_method="subject_reference",
+                        routing_id_parsed=routing_id,
+                        confidence=0.93,
+                    )
+
+        return RoutingResult(matched=False)
+
+    def _lookup_by_combined_ref(
+        self, kanzlei_prefix: str, position: int, aktenzeichen: str = ""
+    ) -> Optional[CreditorInquiry]:
+        """Lookup inquiry by kanzlei prefix + creditor position + aktenzeichen.
+
+        The routing_id format is PREFIX-A{azHash}-{POS}. We match on prefix,
+        position suffix, and — to avoid cross-client collisions — verify the
+        aktenzeichen hash matches the routing_id's middle segment.
+        """
+        query = self.db.query(CreditorInquiry).filter(
+            CreditorInquiry.kanzlei_prefix == kanzlei_prefix,
+        )
+        if self.kanzlei_id:
+            query = query.filter(CreditorInquiry.kanzlei_id == self.kanzlei_id)
+
+        pos_str = str(position).zfill(2)
+        candidates = query.order_by(CreditorInquiry.sent_at.desc()).limit(100).all()
+
+        # Extract numeric hash from aktenzeichen for verification (same logic as portal)
+        az_digits = re.sub(r"\D", "", aktenzeichen)[-6:] if aktenzeichen else ""
+
+        for inq in candidates:
+            if not inq.routing_id or not inq.routing_id.endswith(f"-{pos_str}"):
+                continue
+            # If we have an aktenzeichen, verify the hash matches
+            if az_digits and f"-A{az_digits}-" not in inq.routing_id:
+                continue
+            return inq
+        return None
+
     def _stage_from_address(self, from_email: Optional[str]) -> RoutingResult:
         """
         Stage 4: Lookup from_email in creditor_inquiries.
 
-        Only matches if EXACTLY ONE inquiry exists for this sender.
+        Only matches if EXACTLY ONE inquiry exists for this sender
+        (scoped to kanzlei if known).
         Ambiguous (multiple inquiries) falls through to LLM pipeline.
         """
         if not from_email:
             return RoutingResult(matched=False)
 
-        inquiries = self.db.query(CreditorInquiry).filter(
+        query = self.db.query(CreditorInquiry).filter(
             CreditorInquiry.creditor_email == from_email.lower(),
             CreditorInquiry.status == "sent",
-        ).order_by(CreditorInquiry.sent_at.desc()).limit(2).all()
+        )
+        if self.kanzlei_id:
+            query = query.filter(CreditorInquiry.kanzlei_id == self.kanzlei_id)
+        inquiries = query.order_by(CreditorInquiry.sent_at.desc()).limit(2).all()
 
         if len(inquiries) == 1:
             inquiry = inquiries[0]
@@ -222,7 +331,10 @@ class DeterministicRouter:
         return RoutingResult(matched=False)
 
     def _lookup_by_routing_id(self, routing_id: str) -> Optional[CreditorInquiry]:
-        """Lookup CreditorInquiry by routing_id."""
-        return self.db.query(CreditorInquiry).filter(
+        """Lookup CreditorInquiry by routing_id (scoped to kanzlei if known)."""
+        query = self.db.query(CreditorInquiry).filter(
             CreditorInquiry.routing_id == routing_id
-        ).first()
+        )
+        if self.kanzlei_id:
+            query = query.filter(CreditorInquiry.kanzlei_id == self.kanzlei_id)
+        return query.first()
