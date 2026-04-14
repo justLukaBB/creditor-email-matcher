@@ -205,111 +205,104 @@ class MongoDBService:
                     pass  # Fall back to normal matching if settings unavailable
 
                 for idx, cred in enumerate(creditors):
-                # Match by email (primary) or name (fallback with fuzzy matching)
-                email_match = False
-                name_match = False
+                    # Match by email (primary) or name (fallback with fuzzy matching)
+                    email_match = False
+                    name_match = False
 
-                # Email matching (exact, contains, or domain match)
-                # In test_mode, skip email matching entirely — match by name only
-                if test_mode:
-                    logger.info("test_mode_email_match_skipped",
-                               creditor_email=creditor_email,
-                               cred_email=cred.get('sender_email'))
-                elif creditor_email and cred.get('sender_email'):
-                    cred_email = cred.get('sender_email', '').lower().strip()
-                    search_email = creditor_email.lower().strip()
+                    # Email matching (exact, contains, or domain match)
+                    # In test_mode, skip email matching entirely — match by name only
+                    if test_mode:
+                        logger.info("test_mode_email_match_skipped",
+                                   creditor_email=creditor_email,
+                                   cred_email=cred.get('sender_email'))
+                    elif creditor_email and cred.get('sender_email'):
+                        cred_email = cred.get('sender_email', '').lower().strip()
+                        search_email = creditor_email.lower().strip()
 
-                    # Strategy 1: Check if either contains the other (handles partial matches)
-                    email_match = (search_email in cred_email) or (cred_email in search_email)
+                        # Strategy 1: Check if either contains the other (handles partial matches)
+                        email_match = (search_email in cred_email) or (cred_email in search_email)
 
-                    # Strategy 2: Domain matching (same company, different email address)
-                    # e.g., inkasso@sparkasse.de vs forderungsmanagement@sparkasse.de
-                    # IMPORTANT: Skip domain matching for freemail providers — gmail.com,
-                    # hotmail.com etc. are shared by millions of unrelated senders.
-                    FREEMAIL_DOMAINS = {
-                        "gmail.com", "googlemail.com",
-                        "hotmail.com", "hotmail.de", "outlook.com", "outlook.de", "live.com", "live.de", "msn.com",
-                        "yahoo.com", "yahoo.de",
-                        "gmx.de", "gmx.net", "gmx.at", "gmx.ch",
-                        "web.de",
-                        "t-online.de",
-                        "freenet.de",
-                        "posteo.de", "posteo.net",
-                        "mail.de", "email.de",
-                        "aol.com",
-                        "icloud.com", "me.com", "mac.com",
-                        "protonmail.com", "proton.me",
-                        "tutanota.com", "tuta.io",
-                        "arcor.de",
-                        "vodafone.de",
-                        "1und1.de",
-                    }
-                    if not email_match and '@' in cred_email and '@' in search_email:
-                        cred_domain = cred_email.split('@')[-1]
-                        search_domain = search_email.split('@')[-1]
-                        if cred_domain == search_domain and cred_domain not in FREEMAIL_DOMAINS:
-                            email_match = True
-                            logger.info("domain_match",
-                                       cred_email=cred_email,
-                                       search_email=search_email,
-                                       domain=cred_domain)
-                        elif cred_domain == search_domain and cred_domain in FREEMAIL_DOMAINS:
-                            logger.debug("domain_match_skipped_freemail",
-                                        cred_email=cred_email,
-                                        search_email=search_email,
-                                        domain=cred_domain)
+                        # Strategy 2: Domain matching (same company, different email address)
+                        FREEMAIL_DOMAINS = {
+                            "gmail.com", "googlemail.com",
+                            "hotmail.com", "hotmail.de", "outlook.com", "outlook.de", "live.com", "live.de", "msn.com",
+                            "yahoo.com", "yahoo.de",
+                            "gmx.de", "gmx.net", "gmx.at", "gmx.ch",
+                            "web.de",
+                            "t-online.de",
+                            "freenet.de",
+                            "posteo.de", "posteo.net",
+                            "mail.de", "email.de",
+                            "aol.com",
+                            "icloud.com", "me.com", "mac.com",
+                            "protonmail.com", "proton.me",
+                            "tutanota.com", "tuta.io",
+                            "arcor.de",
+                            "vodafone.de",
+                            "1und1.de",
+                        }
+                        if not email_match and '@' in cred_email and '@' in search_email:
+                            cred_domain = cred_email.split('@')[-1]
+                            search_domain = search_email.split('@')[-1]
+                            if cred_domain == search_domain and cred_domain not in FREEMAIL_DOMAINS:
+                                email_match = True
+                                logger.info("domain_match",
+                                           cred_email=cred_email,
+                                           search_email=search_email,
+                                           domain=cred_domain)
+                            elif cred_domain == search_domain and cred_domain in FREEMAIL_DOMAINS:
+                                logger.debug("domain_match_skipped_freemail",
+                                            cred_email=cred_email,
+                                            search_email=search_email,
+                                            domain=cred_domain)
 
-                # Name matching (fuzzy - check if words overlap)
-                # Check all name fields: sender_name, glaeubiger_name,
-                # glaeubigervertreter_name, actual_creditor — the 1. Anschreiben
-                # uses glaeubiger_name as primary display name, so responses
-                # often reference that name rather than sender_name.
-                if creditor_name:
-                    search_name = creditor_name.lower().strip()
-                    search_words = set(word for word in search_name.split() if len(word) > 3)
+                    # Name matching (fuzzy - check if words overlap)
+                    if creditor_name:
+                        search_name = creditor_name.lower().strip()
+                        search_words = set(word for word in search_name.split() if len(word) > 3)
 
-                    name_fields = [
-                        'sender_name',
-                        'glaeubiger_name',
-                        'glaeubigervertreter_name',
-                        'actual_creditor',
-                    ]
+                        name_fields = [
+                            'sender_name',
+                            'glaeubiger_name',
+                            'glaeubigervertreter_name',
+                            'actual_creditor',
+                        ]
 
-                    for name_field in name_fields:
-                        if name_match:
-                            break
-                        field_value = cred.get(name_field)
-                        if not field_value:
-                            continue
-                        cred_name = field_value.lower().strip()
-                        cred_words = set(word for word in cred_name.split() if len(word) > 3)
+                        for name_field in name_fields:
+                            if name_match:
+                                break
+                            field_value = cred.get(name_field)
+                            if not field_value:
+                                continue
+                            cred_name = field_value.lower().strip()
+                            cred_words = set(word for word in cred_name.split() if len(word) > 3)
 
-                        # Check if any significant words match
-                        if cred_words and search_words:
-                            common_words = cred_words & search_words
-                            if common_words:
-                                name_match = True
-                                logger.info("fuzzy_name_match",
-                                           matched_field=name_field,
-                                           common_words=list(common_words))
+                            # Check if any significant words match
+                            if cred_words and search_words:
+                                common_words = cred_words & search_words
+                                if common_words:
+                                    name_match = True
+                                    logger.info("fuzzy_name_match",
+                                               matched_field=name_field,
+                                               common_words=list(common_words))
 
-                        # Also check if one name contains the other
-                        if not name_match:
-                            if (search_name in cred_name) or (cred_name in search_name):
-                                name_match = True
-                                logger.info("substring_name_match",
-                                           matched_field=name_field,
-                                           search_name=search_name,
-                                           cred_name=cred_name)
+                            # Also check if one name contains the other
+                            if not name_match:
+                                if (search_name in cred_name) or (cred_name in search_name):
+                                    name_match = True
+                                    logger.info("substring_name_match",
+                                               matched_field=name_field,
+                                               search_name=search_name,
+                                               cred_name=cred_name)
 
-                if email_match or name_match:
-                    matched_creditor_index = idx
-                    logger.info("creditor_matched",
-                               sender_name=cred.get('sender_name'),
-                               glaeubiger_name=cred.get('glaeubiger_name'),
-                               email_match=email_match,
-                               name_match=name_match)
-                    break
+                    if email_match or name_match:
+                        matched_creditor_index = idx
+                        logger.info("creditor_matched",
+                                   sender_name=cred.get('sender_name'),
+                                   glaeubiger_name=cred.get('glaeubiger_name'),
+                                   email_match=email_match,
+                                   name_match=name_match)
+                        break
 
             if matched_creditor_index is None:
                 logger.warning("creditor_not_found",
