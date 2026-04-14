@@ -83,7 +83,8 @@ class MongoDBService:
         new_debt_amount: float,
         response_text: Optional[str] = None,
         reference_numbers: Optional[list] = None,
-        extraction_confidence: Optional[float] = None
+        extraction_confidence: Optional[float] = None,
+        creditor_position: Optional[int] = None
     ) -> bool:
         """
         Update creditor's debt amount in MongoDB based on client and creditor identification
@@ -185,16 +186,25 @@ class MongoDBService:
             creditors = client.get('final_creditor_list', [])
             matched_creditor_index = None
 
-            # Check test_mode from portal settings in MongoDB (review_settings collection)
-            test_mode = False
-            try:
-                review_settings = self.db.review_settings.find_one({})
-                if review_settings:
-                    test_mode = review_settings.get('test_mode_enabled', False)
-            except Exception:
-                pass  # Fall back to normal matching if settings unavailable
+            # Fast path: if we know the exact position from deterministic routing, use it directly
+            if creditor_position is not None and 0 <= creditor_position < len(creditors):
+                matched_creditor_index = creditor_position
+                logger.info("creditor_matched_by_position",
+                           position=creditor_position,
+                           creditor_name=creditors[creditor_position].get('sender_name') or creditors[creditor_position].get('glaeubiger_name'))
+            else:
+                # Fallback: match by email or name
 
-            for idx, cred in enumerate(creditors):
+                # Check test_mode from portal settings in MongoDB (review_settings collection)
+                test_mode = False
+                try:
+                    review_settings = self.db.review_settings.find_one({})
+                    if review_settings:
+                        test_mode = review_settings.get('test_mode_enabled', False)
+                except Exception:
+                    pass  # Fall back to normal matching if settings unavailable
+
+                for idx, cred in enumerate(creditors):
                 # Match by email (primary) or name (fallback with fuzzy matching)
                 email_match = False
                 name_match = False

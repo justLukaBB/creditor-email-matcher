@@ -412,6 +412,14 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 # First round — apply amount update guard and dual-write
                 from app.services.amount_update_guard import should_update_amount
 
+                # Extract creditor position from routing ID (e.g. "ES-A4234-04" → 4)
+                creditor_position = None
+                if det_result.routing_id_parsed:
+                    import re as _re
+                    pos_match = _re.search(r'-(\d{2,})$', det_result.routing_id_parsed)
+                    if pos_match:
+                        creditor_position = int(pos_match.group(1))
+
                 guard_ok, guard_reason = should_update_amount(
                     existing_amount=getattr(matched_inquiry, 'debt_amount', None),
                     new_amount=new_debt_amount,
@@ -442,6 +450,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                         reference_numbers=reference_numbers,
                         idempotency_key=idempotency_key,
                         extraction_confidence=det_result.confidence,
+                        creditor_position=creditor_position,
                     )
                     db.commit()
 
