@@ -355,7 +355,10 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 try:
                     extracted_entities = entity_extractor_claude.extract_entities(
                         email_body=email_body_for_extraction,
+                        from_email=email.from_email,
                         subject=email.subject,
+                        email_id=email_id,
+                        db=db,
                     )
                     if extracted_entities:
                         new_debt_amount = extracted_entities.debt_amount
@@ -371,7 +374,9 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                         db.commit()
                 except Exception as extract_err:
                     logger.warning("deterministic_extraction_failed", extra={
-                        "email_id": email_id, "error": str(extract_err)
+                        "email_id": email_id, "error": str(extract_err),
+                        "error_type": type(extract_err).__name__,
+                        "body_length": len(email_body_for_extraction) if email_body_for_extraction else 0,
                     })
 
             # Determine letter type
