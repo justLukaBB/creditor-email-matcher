@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     gcs_bucket_name: Optional[str] = None
     gcs_max_file_size_mb: int = 32  # Claude API 32MB limit
 
+    # Persistent creditor attachment archive (Issue #169)
+    # Tenant-isolated layout: gs://{bucket}/{prefix}/{kanzlei_id|_unassigned}/{resend_email_id}/{filename}
+    gcs_attachments_prefix: str = "creditor-attachments"
+    gcs_attachments_unassigned_folder: str = "_unassigned"
+
     # Cost Control (Phase 3: Multi-Format Document Extraction)
     max_tokens_per_job: int = 100000  # 100K tokens per extraction job
     daily_cost_limit_usd: float = 50.0  # Daily Claude API spend limit

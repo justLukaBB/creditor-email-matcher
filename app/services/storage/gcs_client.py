@@ -3,13 +3,18 @@ GCS Attachment Handler (Phase 3: Multi-Format Document Extraction)
 
 Downloads attachments from GCS or HTTPS URLs with automatic temp file cleanup.
 Supports both gs://bucket/path and HTTPS URLs (Zendesk attachment URLs).
+
+Also handles persistent archiving of creditor email attachments (Issue #169):
+uploads downloaded attachments into the tenant-isolated archive bucket so
+originals remain available after Resend's short-lived URLs expire.
 """
 
 import os
+import re
 import tempfile
+import unicodedata
 from contextlib import contextmanager
 from typing import Optional, Generator
-from urllib.parse import urlparse
 
 import httpx
 import structlog
@@ -25,6 +30,51 @@ logger = structlog.get_logger(__name__)
 class FileTooLargeError(Exception):
     """Raised when file exceeds maximum allowed size."""
     pass
+
+
+# Characters we keep verbatim in a blob filename. Everything else becomes "_".
+_SAFE_FILENAME_RE = re.compile(r"[^A-Za-z0-9._-]+")
+_MAX_FILENAME_LEN = 200
+
+
+def sanitize_filename(filename: Optional[str], index: int = 0) -> str:
+    """
+    Produce a GCS-safe filename from untrusted input.
+
+    Resend delivers attachment filenames that can contain path separators,
+    non-ASCII characters, or be missing entirely. We normalize them before
+    using them as a blob name so they can never escape the tenant folder
+    or collide with the object-path separator.
+
+    Args:
+        filename: Raw filename from Resend (may be None/empty/malicious).
+        index: Positional index of the attachment (used when name is empty).
+
+    Returns:
+        A filename containing only [A-Za-z0-9._-], max 200 chars, never empty.
+    """
+    if not filename:
+        return f"attachment_{index}"
+
+    # Unicode → ASCII-ish. NFKD decomposes diacritics so we keep the base letter.
+    normalized = unicodedata.normalize("NFKD", filename)
+    ascii_only = normalized.encode("ascii", "ignore").decode("ascii")
+
+    # Strip any path segments defensively — filename should be a leaf.
+    leaf = os.path.basename(ascii_only.replace("\\", "/"))
+
+    # Replace disallowed chars with underscores.
+    cleaned = _SAFE_FILENAME_RE.sub("_", leaf).strip("._")
+
+    if not cleaned:
+        return f"attachment_{index}"
+
+    if len(cleaned) > _MAX_FILENAME_LEN:
+        stem, ext = os.path.splitext(cleaned)
+        keep = _MAX_FILENAME_LEN - len(ext)
+        cleaned = stem[: max(keep, 1)] + ext
+
+    return cleaned
 
 
 class GCSAttachmentHandler:
@@ -242,3 +292,91 @@ class GCSAttachmentHandler:
                 with open(dest_path, "wb") as f:
                     for chunk in response.iter_bytes(chunk_size=8192):
                         f.write(chunk)
+
+    def upload_file(
+        self,
+        local_path: str,
+        dest_blob_path: str,
+        content_type: Optional[str] = None,
+        bucket_name: Optional[str] = None,
+    ) -> str:
+        """
+        Upload a local file into the archive bucket and return its gs:// URL.
+
+        Used by the creditor attachment archive flow (Issue #169). The caller
+        is responsible for building a tenant-safe blob path (see
+        `build_attachment_blob_path`).
+
+        Args:
+            local_path: Path to the file on disk.
+            dest_blob_path: Path INSIDE the bucket (no leading slash).
+            content_type: Optional MIME type to store alongside the blob.
+            bucket_name: Override target bucket. Defaults to self.bucket_name.
+
+        Returns:
+            gs://{bucket}/{dest_blob_path}
+
+        Raises:
+            ValueError: If the bucket name is missing or the blob path is empty.
+            Exception: Propagated from the GCS client on upload failure.
+        """
+        target_bucket = bucket_name or self.bucket_name
+        if not target_bucket:
+            raise ValueError("No GCS bucket configured for attachment archive")
+        if not dest_blob_path or dest_blob_path.startswith("/"):
+            raise ValueError(f"Invalid dest_blob_path: {dest_blob_path!r}")
+
+        bucket = self.client.bucket(target_bucket)
+        blob = bucket.blob(dest_blob_path)
+        if content_type:
+            blob.content_type = content_type
+
+        log = logger.bind(
+            local_path=local_path,
+            gcs_path=f"gs://{target_bucket}/{dest_blob_path}",
+            content_type=content_type,
+        )
+        log.info("attachment_upload_started")
+
+        breaker = get_gcs_breaker()
+        try:
+            breaker.call(blob.upload_from_filename, local_path, content_type=content_type)
+        except CircuitBreakerError:
+            log.error("gcs_circuit_open_on_upload")
+            raise
+
+        gs_url = f"gs://{target_bucket}/{dest_blob_path}"
+        log.info("attachment_upload_completed", gcs_url=gs_url)
+        return gs_url
+
+
+def build_attachment_blob_path(
+    kanzlei_id: Optional[str],
+    resend_email_id: Optional[str],
+    filename: str,
+    *,
+    prefix: Optional[str] = None,
+    unassigned_folder: Optional[str] = None,
+) -> str:
+    """
+    Construct the tenant-isolated blob path for a creditor attachment.
+
+    Layout:
+        {prefix}/{kanzlei_id | _unassigned_folder}/{resend_email_id}/{filename}
+
+    - `kanzlei_id` falsy → attachment lands under `_unassigned_folder`.
+    - `resend_email_id` falsy → falls back to `no_email_id` bucket so we still
+      preserve the file (should only happen for out-of-band testing).
+    - `filename` must already be sanitized by the caller.
+    """
+    base_prefix = (prefix or settings.gcs_attachments_prefix or "creditor-attachments").strip("/")
+    unassigned = unassigned_folder or settings.gcs_attachments_unassigned_folder or "_unassigned"
+
+    tenant = kanzlei_id.strip() if isinstance(kanzlei_id, str) and kanzlei_id.strip() else unassigned
+    email_scope = resend_email_id.strip() if isinstance(resend_email_id, str) and resend_email_id.strip() else "no_email_id"
+
+    # Tenant segments must never contain slashes — guard defensively.
+    tenant = tenant.replace("/", "_")
+    email_scope = email_scope.replace("/", "_")
+
+    return f"{base_prefix}/{tenant}/{email_scope}/{filename}"

@@ -29,7 +29,12 @@ from app.services.extraction import (
     ImageExtractor,
     ExtractionConsolidator,
 )
-from app.services.storage import GCSAttachmentHandler, FileTooLargeError
+from app.services.storage import (
+    GCSAttachmentHandler,
+    FileTooLargeError,
+    sanitize_filename,
+    build_attachment_blob_path,
+)
 from app.services.cost_control import (
     TokenBudgetTracker,
     TokenBudgetExceeded,
@@ -72,14 +77,20 @@ class ContentExtractionService:
     def extract_all(
         self,
         email_body: Optional[str],
-        attachment_urls: Optional[List[Dict[str, Any]]]
+        attachment_urls: Optional[List[Dict[str, Any]]],
+        kanzlei_id: Optional[str] = None,
+        resend_email_id: Optional[str] = None,
     ) -> ConsolidatedExtractionResult:
         """
         Extract from email body and all attachments.
 
         Args:
             email_body: Cleaned email body text
-            attachment_urls: List of attachment metadata dicts with url, filename, content_type, size
+            attachment_urls: List of attachment metadata dicts with url, filename, content_type, size.
+                MUTATED IN PLACE — each dict receives a `permanent_url` key after successful GCS archive.
+            kanzlei_id: Tenant ID used to isolate archived attachments per kanzlei.
+                None → archived under the "_unassigned" folder.
+            resend_email_id: Resend email ID used as the per-email sub-folder in GCS.
 
         Returns:
             ConsolidatedExtractionResult with merged data
@@ -120,13 +131,26 @@ class ContentExtractionService:
                 )
             )
 
-            for attachment in sorted_attachments:
+            for idx, attachment in enumerate(sorted_attachments):
                 # Check if we still have token budget
                 if self.token_budget.remaining() < 1000:
                     logger.warning("token_budget_low", remaining=self.token_budget.remaining())
-                    break
+                    # Even if we can't extract further, attempt archive for the remaining
+                    # attachments so originals are still preserved. Fail-soft on errors.
+                    self._archive_only(
+                        attachment=attachment,
+                        kanzlei_id=kanzlei_id,
+                        resend_email_id=resend_email_id,
+                        index=idx,
+                    )
+                    continue
 
-                result = self._extract_attachment(attachment)
+                result = self._extract_attachment(
+                    attachment,
+                    kanzlei_id=kanzlei_id,
+                    resend_email_id=resend_email_id,
+                    index=idx,
+                )
                 if result:
                     source_results.append(result)
 
@@ -150,8 +174,14 @@ class ContentExtractionService:
 
         return consolidated
 
-    def _extract_attachment(self, attachment: Dict[str, Any]) -> Optional[SourceExtractionResult]:
-        """Extract from a single attachment."""
+    def _extract_attachment(
+        self,
+        attachment: Dict[str, Any],
+        kanzlei_id: Optional[str] = None,
+        resend_email_id: Optional[str] = None,
+        index: int = 0,
+    ) -> Optional[SourceExtractionResult]:
+        """Extract from a single attachment and archive the original to GCS."""
         url = attachment.get("url")
         filename = attachment.get("filename", "unknown")
         content_type = attachment.get("content_type")
@@ -162,22 +192,54 @@ class ContentExtractionService:
 
         file_format = detect_file_format(filename, content_type)
 
+        # Even for UNKNOWN formats and files too large to extract, we still want
+        # to preserve the original in the GCS archive (Issue #169).
         if file_format == FileFormat.UNKNOWN:
             logger.info("unsupported_format", filename=filename, content_type=content_type)
+            self._archive_only(
+                attachment=attachment,
+                kanzlei_id=kanzlei_id,
+                resend_email_id=resend_email_id,
+                index=index,
+            )
             return None
 
         try:
-            # Download attachment to temp file
+            # Download attachment to temp file. Inside the with-block:
+            #   1) upload a copy to GCS archive (best-effort — never blocks extraction)
+            #   2) run the extraction pipeline on the temp file
+            # Cleanup happens automatically when the with-block exits.
             with self.gcs_handler.download_from_url(url) as temp_path:
-                return self._extract_from_file(temp_path, file_format, filename)
+                permanent_url = self._upload_attachment(
+                    temp_path=temp_path,
+                    attachment=attachment,
+                    kanzlei_id=kanzlei_id,
+                    resend_email_id=resend_email_id,
+                    index=index,
+                )
+
+                result = self._extract_from_file(temp_path, file_format, filename)
+                if result is not None and permanent_url:
+                    result.permanent_url = permanent_url
+                return result
 
         except FileTooLargeError as e:
             logger.warning("attachment_too_large", filename=filename, error=str(e))
+            # Archive even when extraction is skipped — the original file is still
+            # business-critical. Use a separate fresh download since the size-check
+            # short-circuited the download_from_url path.
+            self._archive_only(
+                attachment=attachment,
+                kanzlei_id=kanzlei_id,
+                resend_email_id=resend_email_id,
+                index=index,
+            )
             return SourceExtractionResult(
                 source_type=file_format.value,
                 source_name=filename,
                 extraction_method="skipped",
-                error="file_too_large"
+                error="file_too_large",
+                permanent_url=attachment.get("permanent_url"),
             )
         except Exception as e:
             logger.error("attachment_download_failed", filename=filename, error=str(e))
@@ -187,6 +249,95 @@ class ContentExtractionService:
                 extraction_method="skipped",
                 error=str(e)
             )
+
+    def _upload_attachment(
+        self,
+        temp_path: str,
+        attachment: Dict[str, Any],
+        kanzlei_id: Optional[str],
+        resend_email_id: Optional[str],
+        index: int,
+    ) -> Optional[str]:
+        """
+        Upload a downloaded attachment to the GCS archive bucket.
+
+        Mutates `attachment` in place with `permanent_url` on success so the
+        caller (email_processor) can forward it to the portal webhook. Returns
+        the gs:// URL, or None on failure. Fail-soft: a failed upload must never
+        prevent extraction from continuing.
+        """
+        if not settings.gcs_bucket_name:
+            logger.debug("attachment_archive_skipped_no_bucket")
+            return None
+
+        raw_filename = attachment.get("filename")
+        content_type = attachment.get("content_type")
+        safe_name = sanitize_filename(raw_filename, index=index)
+        blob_path = build_attachment_blob_path(
+            kanzlei_id=kanzlei_id,
+            resend_email_id=resend_email_id,
+            filename=safe_name,
+        )
+
+        try:
+            gs_url = self.gcs_handler.upload_file(
+                local_path=temp_path,
+                dest_blob_path=blob_path,
+                content_type=content_type,
+                bucket_name=settings.gcs_bucket_name,
+            )
+            attachment["permanent_url"] = gs_url
+            logger.info(
+                "attachment_archived",
+                filename=raw_filename,
+                kanzlei_id=kanzlei_id,
+                resend_email_id=resend_email_id,
+                gcs_url=gs_url,
+            )
+            return gs_url
+        except Exception as upload_err:
+            logger.warning(
+                "attachment_archive_failed",
+                filename=raw_filename,
+                error=str(upload_err),
+                kanzlei_id=kanzlei_id,
+                resend_email_id=resend_email_id,
+            )
+            return None
+
+    def _archive_only(
+        self,
+        attachment: Dict[str, Any],
+        kanzlei_id: Optional[str],
+        resend_email_id: Optional[str],
+        index: int,
+    ) -> Optional[str]:
+        """
+        Download + upload an attachment without running any extraction.
+
+        Used for UNKNOWN formats, over-size files, or when the token budget is
+        exhausted — the original still deserves preservation. Fail-soft.
+        """
+        url = attachment.get("url")
+        if not url or not settings.gcs_bucket_name:
+            return None
+
+        try:
+            with self.gcs_handler.download_from_url(url) as temp_path:
+                return self._upload_attachment(
+                    temp_path=temp_path,
+                    attachment=attachment,
+                    kanzlei_id=kanzlei_id,
+                    resend_email_id=resend_email_id,
+                    index=index,
+                )
+        except Exception as err:
+            logger.warning(
+                "attachment_archive_only_failed",
+                filename=attachment.get("filename"),
+                error=str(err),
+            )
+            return None
 
     def _extract_from_file(
         self,
@@ -256,7 +407,9 @@ def extract_content(
     email_id: int,
     email_body: Optional[str],
     attachment_urls: Optional[List[Dict[str, Any]]],
-    intent_result: Optional[Dict[str, Any]] = None
+    intent_result: Optional[Dict[str, Any]] = None,
+    kanzlei_id: Optional[str] = None,
+    resend_email_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Dramatiq actor for content extraction (Agent 2).
@@ -363,7 +516,12 @@ def extract_content(
             redis_client = redis.from_url(settings.redis_url)
 
         service = ContentExtractionService(redis_client=redis_client)
-        result = service.extract_all(email_body, attachment_urls)
+        result = service.extract_all(
+            email_body,
+            attachment_urls,
+            kanzlei_id=kanzlei_id,
+            resend_email_id=resend_email_id,
+        )
 
         logger.info("extract_content_completed",
             email_id=email_id,

@@ -615,13 +615,34 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                               "with_urls": sum(1 for a in attachment_urls if a.get("url"))})
 
         # Call Agent 2 extraction with intent_result
+        #
+        # Attachment archive (Issue #169): we pass kanzlei_id + resend_email_id so
+        # content_extractor can upload each attachment to the persistent GCS archive
+        # under a tenant-isolated path. After the call, each dict in `attachment_urls`
+        # gains a `permanent_url` key, which we persist below so downstream portal
+        # webhook calls forward the gs:// URL to the portal.
         from app.actors.content_extractor import extract_content
         extraction_result = extract_content(
             email_id=email_id,
             email_body=email_body_for_extraction,
             attachment_urls=attachment_urls,
-            intent_result=intent_result
+            intent_result=intent_result,
+            kanzlei_id=email.kanzlei_id,
+            resend_email_id=email.zendesk_webhook_id,
         )
+
+        # Persist the enriched attachment list (with permanent_url) so later
+        # notify_* calls that read `email.attachment_urls` from the ORM forward
+        # the archive URL to the portal.
+        if attachment_urls:
+            email.attachment_urls = attachment_urls
+            # JSONB columns require explicit flagging for SQLAlchemy to persist in-place mutations.
+            try:
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(email, "attachment_urls")
+            except Exception:
+                pass
+            db.commit()
 
         logger.info("agent2_content_extraction_completed",
                    extra={"email_id": email_id,

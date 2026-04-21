@@ -104,6 +104,13 @@ class SourceExtractionResult(BaseModel):
         default=None,
         description="Raw text extracted from this source (for entity extraction fallback)"
     )
+    permanent_url: Optional[str] = Field(
+        default=None,
+        description=(
+            "gs:// URL of the archived attachment in the persistent GCS bucket (Issue #169). "
+            "None for email_body sources or when archive upload failed."
+        )
+    )
 
 
 class ConsolidatedExtractionResult(BaseModel):
