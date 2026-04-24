@@ -61,6 +61,11 @@ class ScanAnalysisResponse(BaseModel):
     match_status: str = Field(default="no_match", description="auto_matched, needs_review, no_match")
     needs_review: bool = True
 
+    # Settlement (only for letter_type == "second")
+    settlement_status: Optional[str] = Field(None, description="accepted, declined, counter_offer, inquiry, no_clear_response")
+    settlement_confidence: Optional[float] = Field(None, description="0.0-1.0")
+    settlement_counter_offer_amount: Optional[float] = None
+
     # Raw data
     raw_text: Optional[str] = None
     extracted_fields: Optional[dict] = None
@@ -140,6 +145,22 @@ async def analyze_scan(file: UploadFile = File(...), kanzlei_id: Optional[str] =
         # Determine letter type
         response.letter_type = _detect_letter_type(extraction_result.extracted_text or "")
 
+        # For 2. Anschreiben: classify settlement decision via Claude Haiku
+        if response.letter_type == "second" and extraction_result.extracted_text:
+            try:
+                from app.services.settlement_extractor import settlement_extractor
+                settlement_result = settlement_extractor.extract(
+                    email_body=extraction_result.extracted_text,
+                    from_email=response.creditor_name or "unknown",
+                    subject=None,
+                    attachment_texts=None,
+                )
+                response.settlement_status = settlement_result.settlement_decision.value if hasattr(settlement_result.settlement_decision, 'value') else str(settlement_result.settlement_decision)
+                response.settlement_confidence = settlement_result.confidence
+                response.settlement_counter_offer_amount = settlement_result.counter_offer_amount
+            except Exception as e:
+                log.warning("settlement_extraction_failed_in_scan", error=str(e))
+
         log.info(
             "scan_analysis_complete",
             match_status=response.match_status,
@@ -149,6 +170,7 @@ async def analyze_scan(file: UploadFile = File(...), kanzlei_id: Optional[str] =
             previous_amount=response.previous_amount,
             confidence=response.extraction_confidence,
             letter_type=response.letter_type,
+            settlement_status=response.settlement_status,
         )
 
         return response
