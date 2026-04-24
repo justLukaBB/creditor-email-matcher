@@ -13,6 +13,7 @@ from app.services.prompt_manager import get_active_prompt
 from app.services.prompt_renderer import PromptRenderer
 from app.services.prompt_metrics_service import record_extraction_metrics
 from app.services.monitoring.circuit_breakers import get_claude_breaker, CircuitBreakerError
+from app.services.model_compat import resolve_model_name
 import logging
 
 if TYPE_CHECKING:
@@ -159,8 +160,11 @@ class EntityExtractorClaude:
         start_time = time.time()
 
         try:
-            # Determine model parameters
-            model_name = prompt_template.model_name if prompt_template else settings.anthropic_model
+            # Determine model parameters. DB-backed prompt templates can point
+            # at retired model IDs; resolve_model_name rewrites those so stale
+            # rows don't silently break extraction.
+            raw_model = prompt_template.model_name if prompt_template else settings.anthropic_model
+            model_name = resolve_model_name(raw_model)
             max_tokens = prompt_template.max_tokens if prompt_template else 1024
             temperature = prompt_template.temperature if prompt_template and prompt_template.temperature is not None else 0.1
 

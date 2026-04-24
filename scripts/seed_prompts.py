@@ -42,7 +42,7 @@ Antworte nur mit JSON:
         'is_active': True,
         'created_by': 'system_migration',
         'description': 'Migrated from hardcoded intent_classifier.py',
-        'model_name': 'claude-haiku-4-20250514',
+        'model_name': 'claude-haiku-4-5-20251001',
         'temperature': 0.0,
         'max_tokens': 100
     },
@@ -103,7 +103,7 @@ Gib die Antwort als JSON zurück (nur JSON, keine zusätzlichen Erklärungen):''
         'is_active': True,
         'created_by': 'system_migration',
         'description': 'Migrated from hardcoded entity_extractor_claude.py',
-        'model_name': 'claude-sonnet-4-5-20250514',
+        'model_name': 'claude-sonnet-4-5-20250929',
         'temperature': 0.1,
         'max_tokens': 1024
     },
@@ -148,7 +148,7 @@ Wenn ein Feld nicht gefunden wird, nutze null. Fuer gesamtforderung gib null nur
         'is_active': True,
         'created_by': 'system_migration',
         'description': 'Migrated from hardcoded pdf_extractor.py EXTRACTION_PROMPT',
-        'model_name': 'claude-sonnet-4-5-20250514',
+        'model_name': 'claude-sonnet-4-5-20250929',
         'temperature': 0.1,
         'max_tokens': 2048
     },
@@ -186,7 +186,7 @@ Falls die Information nicht sichtbar ist oder das Bild kein relevantes Dokument 
         'is_active': True,
         'created_by': 'system_migration',
         'description': 'Migrated from hardcoded image_extractor.py IMAGE_EXTRACTION_PROMPT',
-        'model_name': 'claude-sonnet-4-5-20250514',
+        'model_name': 'claude-sonnet-4-5-20250929',
         'temperature': 0.1,
         'max_tokens': 1024
     }

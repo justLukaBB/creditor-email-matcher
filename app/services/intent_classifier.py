@@ -12,6 +12,7 @@ from app.models.intent_classification import IntentResult, EmailIntent
 from app.services.prompt_manager import get_active_prompt
 from app.services.prompt_renderer import PromptRenderer
 from app.services.prompt_metrics_service import record_extraction_metrics
+from app.services.model_compat import resolve_model_name
 
 logger = structlog.get_logger(__name__)
 
@@ -167,7 +168,8 @@ def classify_intent_with_llm(body: str, subject: str, email_id: int = None) -> I
             variables={'subject': subject, 'truncated_body': truncated_body},
             template_name='classification.email_intent'
         )
-        model_name = prompt_template.model_name or "claude-haiku-4-5-20251001"
+        # DB prompt template may reference a retired model ID; resolve to a current one.
+        model_name = resolve_model_name(prompt_template.model_name) or "claude-haiku-4-5-20251001"
         temperature = prompt_template.temperature if prompt_template.temperature is not None else 0.0
         max_tokens = prompt_template.max_tokens or 100
     else:
