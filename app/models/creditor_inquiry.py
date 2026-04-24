@@ -49,10 +49,17 @@ class CreditorInquiry(Base):
     letter_type = Column(String(20), default="first", nullable=False, server_default="first")
 
     # Deterministic Routing (Phase 3)
-    routing_id = Column(String(20), nullable=True, index=True)  # e.g. "SC-A1221-42"
+    # routing_id: V1 "SC-A1221-42" or V2 "SC-00-1-a3f2-k7p"
+    routing_id = Column(String(40), nullable=True, index=True)
+    routing_id_version = Column(String(4), nullable=True, index=True)  # 'v1' or 'v2'
     resend_message_id = Column(String(500), nullable=True, index=True)  # Message-ID header for In-Reply-To matching
     kanzlei_id = Column(String(50), nullable=True, index=True)
     kanzlei_prefix = Column(String(3), nullable=True)
+    # Snapshot of creditor array index at inquiry creation time.
+    # Protects against MongoDB array reorder — matcher joins on this, not final_creditor_list order.
+    creditor_idx_snapshot = Column(Integer, nullable=True, index=True)
+    # Client-AZ hash segment from V2 routing ID (4 base36 chars) — redundant identifier for fast lookups
+    client_hash = Column(String(4), nullable=True, index=True)
 
     # Status Tracking
     status = Column(String(50), default="sent")  # sent, replied, no_response, etc.

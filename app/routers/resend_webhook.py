@@ -382,6 +382,33 @@ async def receive_resend_webhook(
         subject=email_data.subject
     )
 
+    # Step 2.5: Anti-probing rate limit on the V2 random-suffix space.
+    # 20 unique to_addresses / 60s / IP → 10-min soft block. Fail-open if Redis down.
+    try:
+        from app.middleware.webhook_rate_limit import check_webhook_probing, extract_client_ip
+
+        # Collect candidate to_addresses (To + CC) for fingerprinting
+        _candidate_addrs = list(email_data.to or [])
+        if email_data.cc:
+            _candidate_addrs.extend(email_data.cc)
+
+        blocked, reason = check_webhook_probing(
+            sender_ip=extract_client_ip(request),
+            to_addresses=_candidate_addrs,
+        )
+        if blocked:
+            logger.warning(
+                "resend_webhook_rate_limited",
+                sender_ip=extract_client_ip(request),
+                reason=reason,
+            )
+            raise HTTPException(status_code=429, detail=f"Rate limited: {reason}")
+    except HTTPException:
+        raise
+    except Exception as _rl_err:
+        # Never fail the webhook because of rate-limit infrastructure issues
+        logger.warning("resend_webhook_rate_limit_error", error=str(_rl_err))
+
     # Step 3: Check for PostgreSQL (required for async processing)
     if db is None:
         logger.warning("async_processing_requires_postgresql")

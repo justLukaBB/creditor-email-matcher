@@ -404,3 +404,287 @@ class TestBounceWebhookVerpParsing:
 
     def test_bounce_classify_unknown(self):
         assert _classify_bounce_inline("RE: Ihr Schreiben", None) == "unknown_bounce"
+
+
+# ============================================================================
+# V2 Routing ID Tests
+# Format: {KANZLEI}-{CREDITOR_IDX}-{LETTER}-{CLIENT_HASH}-{RAND}
+# Example: SC-00-1-a3f2-k7p
+# ============================================================================
+
+
+class TestParseRoutingIdV2:
+    """Unit tests for the V2 parser."""
+
+    def test_parses_first_letter(self):
+        from app.services.deterministic_router import parse_routing_id_v2
+        result = parse_routing_id_v2("SC-00-1-a3f2-k7p")
+        assert result is not None
+        assert result["kanzlei_prefix"] == "SC"
+        assert result["creditor_idx"] == 0
+        assert result["letter"] == "1"
+        assert result["letter_type"] == "first"
+        assert result["client_hash"] == "a3f2"
+        assert result["rand"] == "k7p"
+
+    def test_parses_second_letter(self):
+        from app.services.deterministic_router import parse_routing_id_v2
+        result = parse_routing_id_v2("SC-42-2-a3f2-m9q")
+        assert result is not None
+        assert result["creditor_idx"] == 42
+        assert result["letter"] == "2"
+        assert result["letter_type"] == "second"
+
+    def test_parses_three_char_prefix(self):
+        from app.services.deterministic_router import parse_routing_id_v2
+        result = parse_routing_id_v2("MUE-07-1-bb88-xy9")
+        assert result is not None
+        assert result["kanzlei_prefix"] == "MUE"
+
+    def test_case_insensitive(self):
+        from app.services.deterministic_router import parse_routing_id_v2
+        result = parse_routing_id_v2("sc-00-1-A3F2-K7P")
+        assert result is not None
+        assert result["kanzlei_prefix"] == "SC"  # upper
+        assert result["client_hash"] == "a3f2"  # lower
+
+    def test_rejects_v1_format(self):
+        from app.services.deterministic_router import parse_routing_id_v2
+        assert parse_routing_id_v2("SC-A1221-42") is None
+
+    def test_rejects_invalid_letter(self):
+        from app.services.deterministic_router import parse_routing_id_v2
+        assert parse_routing_id_v2("SC-00-3-a3f2-k7p") is None  # letter must be 1 or 2
+
+    def test_rejects_wrong_hash_length(self):
+        from app.services.deterministic_router import parse_routing_id_v2
+        assert parse_routing_id_v2("SC-00-1-a3f-k7p") is None  # 3 chars not 4
+        assert parse_routing_id_v2("SC-00-1-a3f2-k7") is None  # 2 chars not 3
+
+    def test_rejects_empty(self):
+        from app.services.deterministic_router import parse_routing_id_v2
+        assert parse_routing_id_v2("") is None
+        assert parse_routing_id_v2(None) is None
+
+
+class TestReplyToV2Pattern:
+    """Regex tests for V2 reply-to."""
+
+    def test_standard_reply(self):
+        from app.services.deterministic_router import REPLY_TO_V2_PATTERN
+        m = REPLY_TO_V2_PATTERN.search("reply-SC-00-1-a3f2-k7p@reply.insocore.de")
+        assert m is not None
+        assert m.group(1).upper() == "SC-00-1-A3F2-K7P"
+
+    def test_kanzlei_subdomain(self):
+        from app.services.deterministic_router import REPLY_TO_V2_PATTERN
+        m = REPLY_TO_V2_PATTERN.search("reply-MUE-07-2-bb88-xy9@mue.insocore.de")
+        assert m is not None
+
+    def test_does_not_match_v1(self):
+        from app.services.deterministic_router import REPLY_TO_V2_PATTERN
+        assert REPLY_TO_V2_PATTERN.search("reply-SC-A1221-42@sc.insocore.de") is None
+
+    def test_v1_pattern_does_not_fully_match_v2(self):
+        """V1 pattern may partially match a V2 ID — but exact lookup will fail, so cascade proceeds."""
+        from app.services.deterministic_router import REPLY_TO_PATTERN, parse_routing_id_v2
+        m = REPLY_TO_PATTERN.search("reply-SC-00-1-a3f2-k7p@reply.insocore.de")
+        # V1 regex is loose — may capture partial. What matters: V2 runs FIRST in the cascade.
+        # This test documents the quirk; the fix is cascade ordering, not pattern exclusion.
+        if m:
+            captured = m.group(1)
+            # Partial V2 capture should not parse as valid V2
+            assert parse_routing_id_v2(captured) is None
+
+
+class TestBodyRavV2Pattern:
+    """Regex tests for V2 RAV- body reference."""
+
+    def test_standard_rav(self):
+        from app.services.deterministic_router import BODY_RAV_V2_PATTERN
+        m = BODY_RAV_V2_PATTERN.search("Bitte Ref: RAV-SC-00-1-a3f2-k7p angeben.")
+        assert m is not None
+        assert m.group(1).upper() == "SC-00-1-A3F2-K7P"
+
+    def test_rav_in_html(self):
+        from app.services.deterministic_router import BODY_RAV_V2_PATTERN
+        m = BODY_RAV_V2_PATTERN.search("<p>RAV-MUE-07-2-bb88-xy9</p>")
+        assert m is not None
+
+
+class TestBareRoutingIdV2Pattern:
+    """Regex tests for bare V2 ID in subject/body."""
+
+    def test_matches_bare_id(self):
+        from app.services.deterministic_router import BARE_ROUTING_ID_V2_PATTERN
+        m = BARE_ROUTING_ID_V2_PATTERN.search("Ihr Az: SC-00-1-a3f2-k7p vom 14.04.")
+        assert m is not None
+
+    def test_does_not_match_v1(self):
+        from app.services.deterministic_router import BARE_ROUTING_ID_V2_PATTERN
+        assert BARE_ROUTING_ID_V2_PATTERN.search("Az: SC-A1221-42") is None
+
+
+class TestCombinedRefV2Pattern:
+    """Regex tests for V2 combined reference."""
+
+    def test_standard_combined(self):
+        from app.services.deterministic_router import COMBINED_REF_V2_PATTERN
+        m = COMBINED_REF_V2_PATTERN.search("Az: 2025-00042/SC-00-1 in Ihrer Antwort")
+        assert m is not None
+        assert m.group(2).upper() == "SC"
+        assert m.group(3) == "00"
+        assert m.group(4) == "1"
+
+    def test_does_not_collide_with_v1_combined(self):
+        """V1 combined ref '2025-00042/SC-03' must not match V2 pattern."""
+        from app.services.deterministic_router import COMBINED_REF_V2_PATTERN, COMBINED_REF_PATTERN
+        v1_ref = "2025-00042/SC-03"
+        assert COMBINED_REF_V2_PATTERN.search(v1_ref) is None
+        assert COMBINED_REF_PATTERN.search(v1_ref) is not None  # V1 still works
+
+    def test_v1_does_not_collide_with_v2(self):
+        """V2 combined ref '2025-00042/SC-00-1' must NOT match V1 pattern (negative lookahead)."""
+        from app.services.deterministic_router import COMBINED_REF_PATTERN
+        v2_ref = "2025-00042/SC-00-1"
+        assert COMBINED_REF_PATTERN.search(v2_ref) is None
+
+
+class TestStage1ReplyToV2:
+    """Stage 1 with V2 addresses."""
+
+    def test_v2_match(self):
+        inquiry = _make_inquiry(routing_id="SC-00-1-a3f2-k7p")
+        db = MagicMock()
+        db.query.return_value.filter.return_value.first.return_value = inquiry
+
+        router = DeterministicRouter(db)
+        result = router._stage_reply_to(["reply-SC-00-1-a3f2-k7p@reply.insocore.de"])
+
+        assert result.matched is True
+        assert result.routing_id_version == "v2"
+        assert result.routing_method == "reply_to_address"
+        assert result.parsed.get("letter_type") == "first"
+        assert result.parsed.get("creditor_idx") == 0
+        assert result.confidence == 0.99
+
+    def test_v2_second_letter(self):
+        inquiry = _make_inquiry(routing_id="SC-42-2-a3f2-m9q", letter_type="second")
+        db = MagicMock()
+        db.query.return_value.filter.return_value.first.return_value = inquiry
+
+        router = DeterministicRouter(db)
+        result = router._stage_reply_to(["reply-SC-42-2-a3f2-m9q@sc.insocore.de"])
+
+        assert result.matched is True
+        assert result.parsed.get("letter_type") == "second"
+
+
+class TestStage3BodyReferenceV2:
+    """Stage 3 with V2 RAV-{id}."""
+
+    def test_v2_body_ref(self):
+        inquiry = _make_inquiry(routing_id="SC-00-1-a3f2-k7p")
+        db = MagicMock()
+        db.query.return_value.filter.return_value.first.return_value = inquiry
+
+        router = DeterministicRouter(db)
+        result = router._stage_body_reference(
+            body_text="Referenz: RAV-SC-00-1-a3f2-k7p",
+            body_html=None,
+        )
+
+        assert result.matched is True
+        assert result.routing_id_version == "v2"
+
+
+class TestStage35SubjectV2:
+    """Stage 3.5 with V2 bare + combined ref."""
+
+    def test_v2_bare_in_subject(self):
+        inquiry = _make_inquiry(routing_id="SC-00-1-a3f2-k7p")
+        db = MagicMock()
+        db.query.return_value.filter.return_value.first.return_value = inquiry
+
+        router = DeterministicRouter(db)
+        result = router._stage_subject_reference(
+            subject="WG: Az SC-00-1-a3f2-k7p",
+            body_text=None,
+            body_html=None,
+        )
+
+        assert result.matched is True
+        assert result.routing_id_version == "v2"
+
+    def test_v2_combined_ref_in_subject(self):
+        """Combined-ref V2 lookup falls back to the _lookup_by_combined_ref_v2 method."""
+        inquiry = _make_inquiry(
+            routing_id="SC-00-1-a3f2-k7p",
+            letter_type="first",
+            reference_number="2025-00042",
+        )
+        inquiry.creditor_idx_snapshot = 0
+        inquiry.kanzlei_prefix = "SC"
+        inquiry.routing_id_version = "v2"
+
+        db = MagicMock()
+        # _lookup_by_combined_ref_v2 calls query(...).filter(...).order_by(...).limit(...).all()
+        db.query.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = [inquiry]
+        # Bare V2 pattern should NOT match "2025-00042/SC-00-1" on its own — only combined
+        router = DeterministicRouter(db)
+        result = router._stage_subject_reference(
+            subject="Re: Az 2025-00042/SC-00-1",
+            body_text=None,
+            body_html=None,
+        )
+
+        assert result.matched is True
+        assert result.routing_id_version == "v2"
+        assert result.routing_method == "combined_reference"
+
+
+class TestV1FallbackStillWorks:
+    """V1 cascade still matches when V2 patterns don't fire."""
+
+    def test_v1_reply_to_still_matches(self):
+        inquiry = _make_inquiry(routing_id="SC-A1221-42")
+        db = MagicMock()
+        db.query.return_value.filter.return_value.first.return_value = inquiry
+
+        router = DeterministicRouter(db)
+        result = router._stage_reply_to(["reply-SC-A1221-42@reply.insocore.de"])
+
+        assert result.matched is True
+        assert result.routing_id_version == "v1"
+        assert result.routing_id_parsed == "SC-A1221-42"
+
+    def test_v1_combined_ref_still_matches(self):
+        # AZ hash: "2025-00042" → digits "202500042" → slice(-6) = "500042"
+        inquiry = _make_inquiry(routing_id="SC-A500042-03")
+        db = MagicMock()
+        # _lookup_by_combined_ref iterates candidates
+        db.query.return_value.filter.return_value.order_by.return_value.limit.return_value.all.return_value = [inquiry]
+
+        router = DeterministicRouter(db)
+        result = router._stage_subject_reference(
+            subject="Az: 2025-00042/SC-03",
+            body_text=None,
+            body_html=None,
+        )
+
+        assert result.matched is True
+        assert result.routing_id_version == "v1"
+
+
+class TestV1BugfixesPhase1:
+    """Phase 1 bugfixes verification."""
+
+    def test_route_accepts_no_message_id_param(self):
+        """After bugfix, route() signature no longer has `message_id`. (email_processor.py:291)"""
+        import inspect
+        from app.services.deterministic_router import DeterministicRouter
+
+        sig = inspect.signature(DeterministicRouter.route)
+        # `message_id` parameter removed — Stage 2 uses `in_reply_to` exclusively
+        assert "message_id" not in sig.parameters
+

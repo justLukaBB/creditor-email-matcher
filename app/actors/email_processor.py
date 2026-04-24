@@ -288,7 +288,6 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
         det_result = det_router.route(
             to_addresses=email.to_addresses,
             in_reply_to=email.in_reply_to_header,
-            message_id=email.zendesk_ticket_id,
             from_email=email.from_email,
             subject=email.subject,
             body_text=email.raw_body_text,
@@ -310,6 +309,8 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 "method": det_result.routing_method,
                 "inquiry_id": det_result.inquiry_id,
                 "confidence": det_result.confidence,
+                "routing_id_version": det_result.routing_id_version,
+                "routing_id": det_result.routing_id_parsed,
             })
             add_breadcrumb(
                 "pipeline",
@@ -379,8 +380,18 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                         "body_length": len(email_body_for_extraction) if email_body_for_extraction else 0,
                     })
 
-            # Determine letter type
-            letter_type = getattr(matched_inquiry, 'letter_type', 'first') or 'first'
+            # Determine letter type.
+            # V2 routing IDs encode the letter directly in the ID → authoritative over DB.
+            # V1 falls back to the inquiry's letter_type column.
+            if det_result.routing_id_version == 'v2' and det_result.parsed.get('letter_type'):
+                letter_type = det_result.parsed['letter_type']
+                logger.info("letter_type_from_v2_routing_id", extra={
+                    "email_id": email_id,
+                    "letter_type": letter_type,
+                    "routing_id": det_result.routing_id_parsed,
+                })
+            else:
+                letter_type = getattr(matched_inquiry, 'letter_type', 'first') or 'first'
 
             if letter_type == 'second':
                 # Settlement response — delegate to existing handler
@@ -998,14 +1009,23 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
             # If this inquiry is for a Schuldenbereinigungsplan, use settlement extraction
             # instead of the normal amount extraction path.
             letter_type = getattr(matched_inquiry, 'letter_type', 'first') or 'first'
+            inquiry_version = getattr(matched_inquiry, 'routing_id_version', None)
 
             # If matched inquiry is 'first' but a 'second' inquiry exists among
             # candidates, prefer it — BUT only when intent suggests a settlement
             # response (payment_plan). debt_statement emails are 1. Schreiben
             # responses and must stay on the first-round path.
+            #
+            # V2 routing IDs encode the letter authoritatively → skip this heuristic
+            # entirely for V2 matches. This removes the main source of false-positive
+            # second-round routing.
             intent = intent_result.get("intent")
             intent_suggests_second = intent in ("payment_plan", "settlement", "counter_offer")
-            if letter_type == 'first' and matching_result.candidates and intent_suggests_second:
+            allow_intent_override = inquiry_version != 'v2'
+            if (letter_type == 'first'
+                    and matching_result.candidates
+                    and intent_suggests_second
+                    and allow_intent_override):
                 for candidate in matching_result.candidates:
                     cand_lt = getattr(candidate.inquiry, 'letter_type', 'first') or 'first'
                     if cand_lt == 'second':
@@ -1022,6 +1042,13 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                         if not client_name and matched_inquiry.client_name:
                             client_name = matched_inquiry.client_name
                         break
+            elif inquiry_version == 'v2' and intent_suggests_second and letter_type == 'first':
+                # Log the fact that we're NOT overriding — helpful for monitoring
+                logger.info("v2_letter_type_override_skipped",
+                            extra={"email_id": email_id,
+                                   "inquiry_id": matched_inquiry.id,
+                                   "intent": intent,
+                                   "inquiry_letter_type": letter_type})
 
             if letter_type == 'second':
                 _process_second_round(

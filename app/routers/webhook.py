@@ -127,6 +127,11 @@ async def receive_webhook(
                           error=str(e))
 
     # Step 5: Store incoming email with RECEIVED status (audit trail)
+    # Collect To + CC for deterministic routing (Stages 1 + 3.5)
+    all_to = list(webhook_data.to_addresses or [])
+    if webhook_data.cc_addresses:
+        all_to.extend(webhook_data.cc_addresses)
+
     incoming_email = IncomingEmail(
         zendesk_ticket_id=webhook_data.ticket_id.strip(),
         zendesk_webhook_id=webhook_data.webhook_id,
@@ -135,6 +140,8 @@ async def receive_webhook(
         subject=webhook_data.subject.strip() if webhook_data.subject else None,
         raw_body_html=webhook_data.body_html,
         raw_body_text=webhook_data.body_text,
+        to_addresses=all_to if all_to else None,
+        in_reply_to_header=webhook_data.in_reply_to,
         attachment_urls=webhook_data.attachments,  # New field from Plan 02
         received_at=received_at,
         processing_status="received"

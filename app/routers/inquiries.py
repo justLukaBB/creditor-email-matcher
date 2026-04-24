@@ -42,6 +42,7 @@ class InquiryCreate(BaseModel):
 
     # Resend tracking
     resend_email_id: Optional[str] = None
+    resend_message_id: Optional[str] = None  # Message-ID header (for Stage 2 In-Reply-To matching)
     email_provider: str = "resend"
 
     # Timing
@@ -55,10 +56,15 @@ class InquiryCreate(BaseModel):
     document_url: Optional[str] = None
     notes: Optional[str] = None
 
-    # Deterministic routing (Phase 3)
+    # Deterministic routing (Phase 3 + V2)
     routing_id: Optional[str] = None
+    routing_id_version: Optional[str] = None  # 'v1' | 'v2'
     kanzlei_id: Optional[str] = None
     kanzlei_prefix: Optional[str] = None
+    # V2: Snapshot of creditor array index (anti-reorder protection)
+    creditor_idx_snapshot: Optional[int] = None
+    # V2: Client-AZ hash segment for fast lookup
+    client_hash: Optional[str] = None
 
 
 class InquiryResponse(BaseModel):
@@ -152,15 +158,19 @@ async def create_inquiry(
 
         # Resend
         resend_email_id=inquiry.resend_email_id,
+        resend_message_id=inquiry.resend_message_id,
         email_provider=inquiry.email_provider,
 
         # Letter type
         letter_type=inquiry.letter_type,
 
-        # Deterministic routing (Phase 3)
+        # Deterministic routing (Phase 3 + V2)
         routing_id=inquiry.routing_id,
+        routing_id_version=inquiry.routing_id_version,
         kanzlei_id=inquiry.kanzlei_id,
         kanzlei_prefix=inquiry.kanzlei_prefix,
+        creditor_idx_snapshot=inquiry.creditor_idx_snapshot,
+        client_hash=inquiry.client_hash,
 
         # Timing
         sent_at=inquiry.sent_at or datetime.utcnow(),

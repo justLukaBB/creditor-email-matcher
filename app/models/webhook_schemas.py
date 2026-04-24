@@ -24,6 +24,20 @@ class ZendeskWebhookEmail(BaseModel):
         default=None,
         description="List of attachment metadata from Zendesk. Each dict has: url, filename, content_type, size"
     )
+    # Deterministic routing (Phase 4) — enables Stages 1 + 2 for Zendesk-ingested emails.
+    # Zendesk provides these optionally depending on webhook trigger configuration.
+    to_addresses: Optional[List[str]] = Field(
+        default=None,
+        description="All To recipient addresses (for Reply-To routing)"
+    )
+    cc_addresses: Optional[List[str]] = Field(
+        default=None,
+        description="All CC recipient addresses"
+    )
+    in_reply_to: Optional[str] = Field(
+        default=None,
+        description="In-Reply-To header value (for Message-ID matching)"
+    )
 
     class Config:
         # Allow extra fields that we don't use
