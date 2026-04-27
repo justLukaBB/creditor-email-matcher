@@ -383,23 +383,36 @@ async def receive_resend_webhook(
     )
 
     # Step 2.5: Anti-probing rate limit on the V2 random-suffix space.
-    # 20 unique to_addresses / 60s / IP → 10-min soft block. Fail-open if Redis down.
+    # 20 unique to_addresses / 60s / probe-key → 10-min soft block. Fail-open if Redis down.
+    #
+    # NOTE: We key on the envelope From domain, NOT the transport IP.
+    # Resend delivers all inbound webhooks from a small static IP pool, so
+    # `extract_client_ip(request)` returns the same IP for every legitimate
+    # tenant — keying on it caused a self-DoS once 20 distinct V2 routing
+    # addresses arrived in 60s. Real probing attacks would come from varied
+    # sender domains, so the From-domain is the right discriminator.
     try:
-        from app.middleware.webhook_rate_limit import check_webhook_probing, extract_client_ip
+        from app.middleware.webhook_rate_limit import check_webhook_probing
 
         # Collect candidate to_addresses (To + CC) for fingerprinting
         _candidate_addrs = list(email_data.to or [])
         if email_data.cc:
             _candidate_addrs.extend(email_data.cc)
 
+        # Probe-key: envelope From domain, fallback to full From, fallback to "unknown"
+        _from_raw = (email_data.from_ or "").strip()
+        if "<" in _from_raw and ">" in _from_raw:
+            _from_raw = _from_raw.split("<", 1)[1].rstrip(">").strip()
+        _probe_key = _from_raw.split("@")[-1].lower() if "@" in _from_raw else (_from_raw.lower() or "unknown")
+
         blocked, reason = check_webhook_probing(
-            sender_ip=extract_client_ip(request),
+            sender_ip=_probe_key,
             to_addresses=_candidate_addrs,
         )
         if blocked:
             logger.warning(
                 "resend_webhook_rate_limited",
-                sender_ip=extract_client_ip(request),
+                probe_key=_probe_key,
                 reason=reason,
             )
             raise HTTPException(status_code=429, detail=f"Rate limited: {reason}")
