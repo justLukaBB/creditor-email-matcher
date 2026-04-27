@@ -1530,6 +1530,10 @@ def _process_second_round(
                       "inconsistent": inconsistent})
 
     # Step 3: Store in agent_checkpoints (existing JSONB column)
+    # SQLAlchemy does not auto-detect in-place mutations on JSONB columns —
+    # the rest of the pipeline goes through save_checkpoint() which calls
+    # flag_modified(). Without it the settlement_extraction key is silently
+    # dropped on commit (verified in production replay of email_id=807).
     checkpoints = email.agent_checkpoints or {}
     checkpoints["settlement_extraction"] = {
         "settlement_decision": settlement_result.settlement_decision,
@@ -1542,6 +1546,8 @@ def _process_second_round(
         "consistency_warnings": consistency_warnings,
     }
     email.agent_checkpoints = checkpoints
+    from sqlalchemy.orm.attributes import flag_modified
+    flag_modified(email, "agent_checkpoints")
 
     # Step 4: MongoDB write
     mongodb_success = mongodb_service.update_settlement_response(
