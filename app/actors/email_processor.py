@@ -9,7 +9,7 @@ import dramatiq
 import logging
 import psutil
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from asgi_correlation_id.context import correlation_id as correlation_id_ctx
 from app.services.monitoring.metrics import MetricsCollector
 from app.services.monitoring.error_tracking import set_processing_context, add_breadcrumb
@@ -1065,6 +1065,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                     subject=email.subject,
                     confidence_result=confidence_result,
                     route=route,
+                    attachment_texts=extraction_result.get("attachment_texts") or None,
                 )
                 # Skip the normal 1. Schreiben path below — jump to Step 7
                 # (processing completion is handled inside _process_second_round sets status,
@@ -1412,6 +1413,7 @@ def _process_second_round(
     subject: Optional[str],
     confidence_result,
     route,
+    attachment_texts: Optional[List[str]] = None,
 ):
     """
     Process a 2. Schreiben (Schuldenbereinigungsplan) response.
@@ -1419,7 +1421,7 @@ def _process_second_round(
     Classifies the creditor's response as accepted/declined/counter_offer,
     writes settlement data to MongoDB, and notifies the portal.
     """
-    from app.services.settlement_extractor import settlement_extractor
+    from app.services.settlement_extractor import settlement_extractor, validate_consistency
     from app.services.mongodb_client import mongodb_service
     from app.services.portal_notifier import notify_settlement_response
 
@@ -1433,20 +1435,32 @@ def _process_second_round(
         email_body=email_body,
         from_email=creditor_email,
         subject=subject,
+        attachment_texts=attachment_texts,
     )
 
-    # Step 2: Confidence check
+    # Step 2: Confidence + cross-field consistency check
+    inconsistent, consistency_warnings = validate_consistency(
+        settlement_result,
+        original_debt=getattr(matched_inquiry, 'debt_amount', None),
+    )
     needs_review = (
         settlement_result.confidence < 0.70
         or settlement_result.settlement_decision == "no_clear_response"
+        or inconsistent
     )
+
+    if consistency_warnings:
+        logger.info("settlement_consistency_warnings",
+                   extra={"email_id": email_id,
+                          "warnings": consistency_warnings})
 
     logger.info("settlement_extraction_complete",
                extra={"email_id": email_id,
                       "decision": settlement_result.settlement_decision,
                       "confidence": settlement_result.confidence,
                       "counter_offer": settlement_result.counter_offer_amount,
-                      "needs_review": needs_review})
+                      "needs_review": needs_review,
+                      "inconsistent": inconsistent})
 
     # Step 3: Store in agent_checkpoints (existing JSONB column)
     checkpoints = email.agent_checkpoints or {}
@@ -1458,6 +1472,7 @@ def _process_second_round(
         "confidence": settlement_result.confidence,
         "summary": settlement_result.summary,
         "needs_review": needs_review,
+        "consistency_warnings": consistency_warnings,
     }
     email.agent_checkpoints = checkpoints
 
