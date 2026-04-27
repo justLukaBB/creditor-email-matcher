@@ -9,7 +9,7 @@ import dramatiq
 import logging
 import psutil
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 from asgi_correlation_id.context import correlation_id as correlation_id_ctx
 from app.services.monitoring.metrics import MetricsCollector
 from app.services.monitoring.error_tracking import set_processing_context, add_breadcrumb
@@ -404,6 +404,11 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                 })()
                 route = route_by_confidence(det_result.confidence)
 
+                # Deterministic path skips the regular content_extractor actor —
+                # run it inline for second letters so PDFs/DOCX with counter-offers
+                # are passed to the settlement extractor.
+                attachment_texts = _extract_attachment_texts_for_email(email)
+
                 _process_second_round(
                     db=db,
                     email=email,
@@ -418,6 +423,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                     subject=email.subject,
                     confidence_result=confidence_result_obj,
                     route=route,
+                    attachment_texts=attachment_texts,
                 )
             else:
                 # First round — apply amount update guard and dual-write
@@ -1065,6 +1071,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                     subject=email.subject,
                     confidence_result=confidence_result,
                     route=route,
+                    attachment_texts=extraction_result.get("attachment_texts") or None,
                 )
                 # Skip the normal 1. Schreiben path below — jump to Step 7
                 # (processing completion is handled inside _process_second_round sets status,
@@ -1398,6 +1405,67 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                           "memory_freed_mb": round(memory_before_mb - memory_after_mb, 2)})
 
 
+def _extract_attachment_texts_for_email(email) -> Optional[List[str]]:
+    """
+    Run content extraction over an email's attachments to harvest the extracted
+    text. Used by the deterministic-match path for 2. Schreiben so settlement
+    counter-offers buried in PDFs/DOCX are visible to the LLM.
+
+    Best-effort: never raises. Returns None if there are no attachments or
+    extraction fails for any reason.
+
+    Side-effect: enriches `email.attachment_urls` with download URLs from
+    Resend and `permanent_url` from the GCS archive — same shape the regular
+    pipeline produces, so the portal webhook downstream forwards the gs://
+    URLs.
+    """
+    from app.config import settings
+
+    attachment_urls = email.attachment_urls or []
+    if not attachment_urls:
+        return None
+
+    try:
+        if email.zendesk_webhook_id:
+            from app.services.resend_client import enrich_attachments_with_download_urls
+            attachment_urls = enrich_attachments_with_download_urls(
+                resend_email_id=email.zendesk_webhook_id,
+                attachments=attachment_urls,
+            )
+
+        from app.actors.content_extractor import ContentExtractionService
+
+        redis_client = None
+        if settings.redis_url:
+            import redis
+            redis_client = redis.from_url(settings.redis_url)
+
+        service = ContentExtractionService(redis_client=redis_client)
+        result = service.extract_all(
+            email_body=None,  # body is fed to the settlement extractor separately
+            attachment_urls=attachment_urls,
+            kanzlei_id=email.kanzlei_id,
+            resend_email_id=email.zendesk_webhook_id,
+        )
+
+        # Persist enriched URLs (with permanent_url) back on the ORM record
+        # so notify_settlement_response forwards GCS URLs to the portal.
+        email.attachment_urls = attachment_urls
+
+        attachment_texts = [
+            s.extracted_text for s in result.source_results
+            if s.extracted_text and s.source_type != "email_body"
+        ]
+        return attachment_texts or None
+    except Exception as e:
+        logger.warning("second_round_attachment_extraction_failed", extra={
+            "email_id": getattr(email, "id", None),
+            "error": str(e),
+            "error_type": type(e).__name__,
+        })
+        return None
+
+
 def _process_second_round(
     db,
     email,
@@ -1412,6 +1480,7 @@ def _process_second_round(
     subject: Optional[str],
     confidence_result,
     route,
+    attachment_texts: Optional[List[str]] = None,
 ):
     """
     Process a 2. Schreiben (Schuldenbereinigungsplan) response.
@@ -1419,7 +1488,7 @@ def _process_second_round(
     Classifies the creditor's response as accepted/declined/counter_offer,
     writes settlement data to MongoDB, and notifies the portal.
     """
-    from app.services.settlement_extractor import settlement_extractor
+    from app.services.settlement_extractor import settlement_extractor, validate_consistency
     from app.services.mongodb_client import mongodb_service
     from app.services.portal_notifier import notify_settlement_response
 
@@ -1433,20 +1502,32 @@ def _process_second_round(
         email_body=email_body,
         from_email=creditor_email,
         subject=subject,
+        attachment_texts=attachment_texts,
     )
 
-    # Step 2: Confidence check
+    # Step 2: Confidence + cross-field consistency check
+    inconsistent, consistency_warnings = validate_consistency(
+        settlement_result,
+        original_debt=getattr(matched_inquiry, 'debt_amount', None),
+    )
     needs_review = (
         settlement_result.confidence < 0.70
         or settlement_result.settlement_decision == "no_clear_response"
+        or inconsistent
     )
+
+    if consistency_warnings:
+        logger.info("settlement_consistency_warnings",
+                   extra={"email_id": email_id,
+                          "warnings": consistency_warnings})
 
     logger.info("settlement_extraction_complete",
                extra={"email_id": email_id,
                       "decision": settlement_result.settlement_decision,
                       "confidence": settlement_result.confidence,
                       "counter_offer": settlement_result.counter_offer_amount,
-                      "needs_review": needs_review})
+                      "needs_review": needs_review,
+                      "inconsistent": inconsistent})
 
     # Step 3: Store in agent_checkpoints (existing JSONB column)
     checkpoints = email.agent_checkpoints or {}
@@ -1458,6 +1539,7 @@ def _process_second_round(
         "confidence": settlement_result.confidence,
         "summary": settlement_result.summary,
         "needs_review": needs_review,
+        "consistency_warnings": consistency_warnings,
     }
     email.agent_checkpoints = checkpoints
 

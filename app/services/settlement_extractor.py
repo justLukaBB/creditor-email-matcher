@@ -6,7 +6,8 @@ Classifies creditor responses to Schuldenbereinigungsplan (2. Schreiben) using C
 import json
 import time
 import logging
-from typing import Optional, List
+from decimal import Decimal
+from typing import Optional, List, Tuple, Union
 
 from anthropic import Anthropic
 from app.config import settings
@@ -154,3 +155,57 @@ class SettlementExtractor:
 
 
 settlement_extractor = SettlementExtractor()
+
+
+# --- Consistency validation ---------------------------------------------------
+
+# Conditional phrases that suggest a "soft accept" is actually a counter offer.
+# Lower-cased and matched against `conditions` field as substrings.
+_CONDITIONAL_PHRASES = (
+    "nur wenn",
+    "vorbehaltlich",
+    "sofern",
+    "rate",
+    "raten",
+    "einmalzahlung",
+)
+
+
+def validate_consistency(
+    result: SettlementExtractionResult,
+    original_debt: Optional[Union[float, Decimal]] = None,
+) -> Tuple[bool, List[str]]:
+    """
+    Sanity-check the LLM output for cross-field inconsistencies that hint at
+    incomplete extraction or LLM hallucination. Independent of the model's
+    self-reported confidence.
+
+    Returns (inconsistent, warnings). `inconsistent=True` should drive needs_review.
+    """
+    warnings: List[str] = []
+
+    decision = result.settlement_decision
+    # SettlementDecision uses use_enum_values=True so str compare works,
+    # but coerce to be safe against future schema changes.
+    decision_value = decision.value if hasattr(decision, "value") else decision
+
+    if decision_value == SettlementDecision.counter_offer.value and result.counter_offer_amount is None:
+        warnings.append("counter_offer_without_amount")
+
+    if decision_value == SettlementDecision.accepted.value and result.conditions:
+        cond_lower = result.conditions.lower()
+        if any(phrase in cond_lower for phrase in _CONDITIONAL_PHRASES):
+            warnings.append("accepted_with_conditional_phrasing")
+
+    if result.counter_offer_amount is not None:
+        if result.counter_offer_amount < 0:
+            warnings.append("negative_counter_offer")
+        if original_debt is not None:
+            try:
+                debt_float = float(original_debt)
+                if debt_float > 0 and result.counter_offer_amount > debt_float * 2:
+                    warnings.append("counter_offer_exceeds_2x_original")
+            except (TypeError, ValueError):
+                pass
+
+    return (len(warnings) > 0, warnings)
