@@ -1565,7 +1565,17 @@ def _process_second_round(
     # Step 5: Set match status
     if mongodb_success:
         email.match_status = "auto_matched"
-        email.match_confidence = int(matching_result.match.total_score * 100)
+        # Deterministic 2.-Schreiben path passes matching_result=None — confidence
+        # was validated upstream via the routing ID. Fall back to the upstream
+        # confidence so the Schritt 5 assignment never crashes the whole pipeline
+        # (which would prevent the Step 6 portal notification from running and
+        # leave the email invisible in the inbox even though MongoDB was updated).
+        if matching_result is not None and matching_result.match is not None:
+            email.match_confidence = int(matching_result.match.total_score * 100)
+        elif confidence_result is not None and getattr(confidence_result, "match", None) is not None:
+            email.match_confidence = int(confidence_result.match * 100)
+        else:
+            email.match_confidence = 100
     else:
         email.match_status = "no_match"
         logger.warning("settlement_mongodb_write_failed",
@@ -1574,24 +1584,31 @@ def _process_second_round(
     if needs_review:
         email.match_status = "needs_review"
 
-    # Step 6: Portal notification
-    notify_settlement_response(
-        email_id=email_id,
-        client_aktenzeichen=client_aktenzeichen,
-        client_name=client_name,
-        creditor_name=creditor_name,
-        creditor_email=creditor_email,
-        settlement_decision=settlement_result.settlement_decision,
-        counter_offer_amount=settlement_result.counter_offer_amount,
-        conditions=settlement_result.conditions,
-        confidence=settlement_result.confidence,
-        match_status=email.match_status,
-        needs_review=needs_review,
-        email_subject=subject,
-        email_body_preview=email_body,
-        attachment_urls=email.attachment_urls,
-        resend_email_id=email.zendesk_webhook_id,
-    )
+    # Step 6: Portal notification (failure-isolated — a portal HTTP error
+    # must not roll back the MongoDB settlement write or crash the actor,
+    # otherwise Dramatiq retries hit the dedupe check and the inbox never
+    # sees the entry).
+    try:
+        notify_settlement_response(
+            email_id=email_id,
+            client_aktenzeichen=client_aktenzeichen,
+            client_name=client_name,
+            creditor_name=creditor_name,
+            creditor_email=creditor_email,
+            settlement_decision=settlement_result.settlement_decision,
+            counter_offer_amount=settlement_result.counter_offer_amount,
+            conditions=settlement_result.conditions,
+            confidence=settlement_result.confidence,
+            match_status=email.match_status,
+            needs_review=needs_review,
+            email_subject=subject,
+            email_body_preview=email_body,
+            attachment_urls=email.attachment_urls,
+            resend_email_id=email.zendesk_webhook_id,
+        )
+    except Exception as notify_err:
+        logger.error("settlement_portal_notify_failed",
+                     extra={"email_id": email_id, "error": str(notify_err)})
 
     logger.info("second_round_processing_complete",
                extra={"email_id": email_id,
