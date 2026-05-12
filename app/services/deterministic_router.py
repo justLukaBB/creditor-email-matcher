@@ -3,7 +3,9 @@ Deterministic Router — Phase 4 of Multi-Tenant Email Routing
 
 Routes incoming creditor emails to the correct CreditorInquiry WITHOUT LLM processing.
 Uses a 4-stage cascade:
-  1. Reply-To address parsing (reply-{routingId}@reply.rasolv.ai)
+  1. Reply-To address parsing (reply-{routingId}@reply.insocore.de
+     or reply-{routingId}@{prefix}.insocore.de for per-kanzlei subdomains;
+     reply.rasolv.ai is still accepted for legacy outbound emails)
   2. In-Reply-To / Message-ID header matching
   3. Body reference RAV-{routingId} regex
   4. From-address DB lookup (unique sender → match, ambiguous → fall through to LLM)
@@ -26,8 +28,12 @@ logger = logging.getLogger(__name__)
 # --- V1 Patterns (legacy format: SC-A1221-42) ---
 # Kept permissive for backwards compat with existing outbound emails. V2 runs first
 # in the cascade, so V1's looseness only matters for V1 inquiries (lookup filters them anyway).
+#
+# Two reply-to address shapes accepted (since 2026-05-12 plus-addressing rollout):
+#   - legacy:   reply-{id}@{domain}
+#   - plus-tag: {localpart}+{id}@{domain}    (local-part mirrors FROM for visual clarity)
 REPLY_TO_PATTERN = re.compile(
-    r"reply-([A-Z]{2,3}-[A-Za-z0-9]+-\d+)@(?:reply\.insocore\.de|reply\.rasolv\.ai|[a-z]{2,3}\.insocore\.de)",
+    r"(?:reply-|[A-Za-z0-9._-]+\+)([A-Z]{2,3}-[A-Za-z0-9]+-\d+)@(?:reply\.insocore\.de|reply\.rasolv\.ai|[a-z]{2,3}\.insocore\.de)",
     re.IGNORECASE,
 )
 BODY_RAV_PATTERN = re.compile(
@@ -49,9 +55,11 @@ ROUTING_ID_V2_PATTERN = re.compile(
     r"^([A-Z]{2,3})-(\d{2,})-([12])-([a-z0-9]{4})-([a-z0-9]{3})$",
     re.IGNORECASE,
 )
-# Reply-To V2: reply-{V2ID}@...
+# Reply-To V2: both legacy `reply-{V2ID}@` and plus-tag `{localpart}+{V2ID}@`
+# (since 2026-05-12 — local-part of the plus-tag form mirrors the FROM-address
+# local-part so creditors see the same "kanzlei@..." style in Briefkopf + email).
 REPLY_TO_V2_PATTERN = re.compile(
-    r"reply-([A-Z]{2,3}-\d{2,}-[12]-[a-z0-9]{4}-[a-z0-9]{3})@(?:reply\.insocore\.de|reply\.rasolv\.ai|[a-z]{2,3}\.insocore\.de)",
+    r"(?:reply-|[A-Za-z0-9._-]+\+)([A-Z]{2,3}-\d{2,}-[12]-[a-z0-9]{4}-[a-z0-9]{3})@(?:reply\.insocore\.de|reply\.rasolv\.ai|[a-z]{2,3}\.insocore\.de)",
     re.IGNORECASE,
 )
 BODY_RAV_V2_PATTERN = re.compile(

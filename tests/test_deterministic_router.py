@@ -91,6 +91,18 @@ class TestReplyToPattern:
         assert match is not None
         assert match.group(1) == "MUE-B5543-7"
 
+    def test_plus_addressing_kanzlei_localpart(self):
+        """Plus-addressing rollout 2026-05-12: kanzlei+{id}@... mirrors FROM."""
+        match = REPLY_TO_PATTERN.search("kanzlei+SC-A1221-42@sc.insocore.de")
+        assert match is not None
+        assert match.group(1) == "SC-A1221-42"
+
+    def test_plus_addressing_custom_localpart(self):
+        """Mode 1 legacy senders use the kanzlei email local-part (e.g. office)."""
+        match = REPLY_TO_PATTERN.search("office+ES-B9921-3@reply.insocore.de")
+        assert match is not None
+        assert match.group(1) == "ES-B9921-3"
+
     def test_no_match_wrong_domain(self):
         match = REPLY_TO_PATTERN.search("reply-SC-A1221-42@other.domain.com")
         assert match is None
@@ -480,6 +492,20 @@ class TestReplyToV2Pattern:
         from app.services.deterministic_router import REPLY_TO_V2_PATTERN
         m = REPLY_TO_V2_PATTERN.search("reply-MUE-07-2-bb88-xy9@mue.insocore.de")
         assert m is not None
+
+    def test_plus_addressing_kanzlei_localpart(self):
+        """Plus-addressing rollout 2026-05-12: Mode 2 sender uses 'kanzlei' local-part."""
+        from app.services.deterministic_router import REPLY_TO_V2_PATTERN
+        m = REPLY_TO_V2_PATTERN.search("kanzlei+CO-04-1-g7v3-7sj@co.insocore.de")
+        assert m is not None
+        assert m.group(1).upper() == "CO-04-1-G7V3-7SJ"
+
+    def test_plus_addressing_custom_localpart(self):
+        """Mode 1 sender (e.g. office@scuric.de) keeps its FROM local-part on reply.insocore.de."""
+        from app.services.deterministic_router import REPLY_TO_V2_PATTERN
+        m = REPLY_TO_V2_PATTERN.search("office+SC-00-2-abcd-xyz@reply.insocore.de")
+        assert m is not None
+        assert m.group(1).upper() == "SC-00-2-ABCD-XYZ"
 
     def test_does_not_match_v1(self):
         from app.services.deterministic_router import REPLY_TO_V2_PATTERN

@@ -32,8 +32,10 @@ logger = structlog.get_logger()
 # Patterns for extracting kanzlei context from to-addresses and routing IDs
 import re
 _INSOCORE_DOMAIN_RE = re.compile(r"@([a-z]{2,3})\.insocore\.de$", re.IGNORECASE)
+# Accepts both legacy `reply-{id}@` and plus-tag `{localpart}+{id}@`
+# (since 2026-05-12 — see deterministic_router.REPLY_TO_PATTERN).
 _REPLY_ROUTING_RE = re.compile(
-    r"reply-([A-Z]{2,3})-[A-Za-z0-9]+-\d+@",
+    r"(?:reply-|[A-Za-z0-9._-]+\+)([A-Z]{2,3})-[A-Za-z0-9]+-\d+@",
     re.IGNORECASE,
 )
 _ROUTING_ID_RE = re.compile(r"(?:RAV-)?([A-Z]{2,3})-A\d+-\d{2,}", re.IGNORECASE)
