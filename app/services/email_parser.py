@@ -53,12 +53,15 @@ class EmailParser:
             text_content = text_body or ""
 
         token_count_before = self._estimate_tokens(text_content)
+        input_preview = text_content[: self._PREVIEW_CHARS]
 
         # Step 2: Remove Zendesk metadata
         text_content = self._remove_zendesk_metadata(text_content)
+        tokens_after_zendesk = self._estimate_tokens(text_content)
 
         # Step 3: Remove quoted/forwarded content
         text_content = self._remove_quoted_content(text_content)
+        tokens_after_quote = self._estimate_tokens(text_content)
 
         # Step 4: Extract creditor info from signature (before removing it)
         creditor_info = self._extract_creditor_from_signature(text_content)
@@ -69,6 +72,7 @@ class EmailParser:
 
         # Step 6: Remove common email footers/disclaimers
         text_content = self._remove_disclaimers(text_content)
+        tokens_after_disclaimer = self._estimate_tokens(text_content)
 
         # Step 7: Clean up whitespace and formatting
         cleaned_body = self._clean_whitespace(text_content)
@@ -78,6 +82,22 @@ class EmailParser:
         logger.info(
             f"Email parsed: {token_count_before} → {token_count_after} tokens "
             f"({self._calculate_reduction(token_count_before, token_count_after)}% reduction)"
+        )
+        # Per-stage breakdown and content previews. Helps diagnose which stage
+        # over-strips when Claude sees too little context. Capped at 500 chars
+        # to avoid bloating logs; previews live only in private Render logs.
+        logger.info(
+            "email_parse_debug",
+            extra={
+                "tokens_input": token_count_before,
+                "tokens_after_zendesk": tokens_after_zendesk,
+                "tokens_after_quote": tokens_after_quote,
+                "tokens_after_disclaimer": tokens_after_disclaimer,
+                "tokens_final": token_count_after,
+                "source": "html" if html_body else "text",
+                "input_preview": input_preview,
+                "cleaned_preview": cleaned_body[: self._PREVIEW_CHARS],
+            },
         )
 
         return {
@@ -127,6 +147,7 @@ class EmailParser:
     # classify the email as a creditor reply.
     _MIN_PARSED_CHARS = 200
     _MAX_REDUCTION_RATIO = 0.8
+    _PREVIEW_CHARS = 500
 
     def _remove_quoted_content(self, text: str) -> str:
         """
