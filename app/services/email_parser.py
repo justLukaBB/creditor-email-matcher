@@ -121,18 +121,48 @@ class EmailParser:
 
         return text
 
+    # Guard thresholds for over-aggressive quote stripping. EmailReplyParser
+    # occasionally swallows the actual reply when the user writes inside or
+    # right above a quoted block — leaving Claude with too little context to
+    # classify the email as a creditor reply.
+    _MIN_PARSED_CHARS = 200
+    _MAX_REDUCTION_RATIO = 0.8
+
     def _remove_quoted_content(self, text: str) -> str:
         """
-        Remove quoted/forwarded content using email-reply-parser
+        Remove quoted/forwarded content using email-reply-parser.
+
+        Falls back to manual quote removal when the library strips so
+        aggressively that almost no body content remains — a strong signal
+        that the actual reply was caught in the quote block.
         """
+        original = text or ""
+        original_stripped = original.strip()
+        if len(original_stripped) < self._MIN_PARSED_CHARS:
+            return original
+
         try:
-            # EmailReplyParser removes quoted content automatically
-            parsed = EmailReplyParser.parse_reply(text)
-            return parsed
+            parsed = EmailReplyParser.parse_reply(original)
         except Exception as e:
             logger.warning(f"Email reply parsing failed: {e}")
-            # Fallback: manual removal
-            return self._manual_quote_removal(text)
+            return self._manual_quote_removal(original)
+
+        parsed_stripped = (parsed or "").strip()
+        over_stripped = (
+            len(parsed_stripped) < self._MIN_PARSED_CHARS
+            and len(parsed_stripped) < len(original_stripped) * (1 - self._MAX_REDUCTION_RATIO)
+        )
+        if over_stripped:
+            logger.warning(
+                "email_reply_parser_over_stripped",
+                extra={
+                    "original_chars": len(original_stripped),
+                    "parsed_chars": len(parsed_stripped),
+                },
+            )
+            return self._manual_quote_removal(original)
+
+        return parsed
 
     def _manual_quote_removal(self, text: str) -> str:
         """
