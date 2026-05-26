@@ -1,12 +1,15 @@
 """
 Bounce Webhook Router — Phase 4: VERP Bounce Handling
 
-Handles bounced emails from bounce.rasolv.ai (VERP addresses).
-Parses bounce-{routingId}@bounce.rasolv.ai to identify which outbound email bounced,
-then updates the creditor inquiry and outbound email status.
+Handles bounced emails from bounce.insocore.de (VERP addresses).
+The VERP_PATTERN below also accepts bounce.rasolv.ai (legacy) and
+{prefix}.insocore.de (per-kanzlei subdomains) for backwards compat.
+
+Parses bounce-{routingId}@bounce.insocore.de to identify which outbound email
+bounced, then updates the creditor inquiry and outbound email status.
 
 Flow:
-1. Receive Resend inbound webhook for bounce.rasolv.ai
+1. Receive Resend inbound webhook for bounce.insocore.de
 2. Parse VERP address to extract routing ID
 3. Look up CreditorInquiry by routing_id
 4. Mark inquiry as bounced
@@ -86,9 +89,10 @@ async def receive_bounce_webhook(
     db: Session = Depends(get_db),
 ):
     """
-    Receive bounce notification via Resend inbound webhook on bounce.rasolv.ai.
+    Receive bounce notification via Resend inbound webhook on bounce.insocore.de.
 
-    VERP format: bounce-{routingId}@bounce.rasolv.ai
+    VERP format: bounce-{routingId}@bounce.insocore.de
+    (Pattern also accepts bounce.rasolv.ai legacy and {prefix}.insocore.de per-kanzlei.)
     """
     try:
         body = await request.body()
@@ -146,6 +150,29 @@ async def receive_bounce_webhook(
         "bounce_type": bounce_type,
         "creditor_email": inquiry.creditor_email,
     })
+
+    # Phase 5.4 — notify the portal so OutboundEmail.delivery_status='bounced'
+    # and the cascade (final_creditor_list[].contact_status='email_failed') fires.
+    # Fire-and-forget: if the portal is unreachable, we still acknowledge the
+    # bounce locally above and surface a warning log.
+    try:
+        from app.services.portal_notifier import notify_portal_bounce
+
+        # bounce_type from _classify_bounce is one of {'hard_bounce', 'soft_bounce', 'unknown_bounce'}.
+        # The portal handler accepts the bare 'hard'/'soft' form, so we normalise.
+        portal_bounce_type = "hard" if bounce_type == "hard_bounce" else "soft"
+
+        notify_portal_bounce(
+            resend_email_id=inquiry.resend_email_id,
+            bounce_type=portal_bounce_type,
+            bounce_reason=(email_data.subject or "").strip() or "matcher_classified",
+            routing_id=routing_id,
+            kanzlei_id=inquiry.kanzlei_id,
+            event_id=f"matcher-bounce:{email_data.email_id}",
+        )
+    except Exception as e:
+        # Never block the bounce-classification flow on a portal hiccup.
+        logger.warning("portal_bounce_notify_failed", extra={"error": str(e), "routing_id": routing_id})
 
     return {
         "status": "processed",
