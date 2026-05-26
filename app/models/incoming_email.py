@@ -102,6 +102,10 @@ class IncomingEmail(Base):
 
     # Deterministic Routing (Phase 4: DeterministicRouter)
     to_addresses = Column(ARRAY(String), nullable=True)  # All To/CC addresses from inbound email
+    # Phase 5.2 — separate CC/BCC. Historical rows have NULL because pre-cutover
+    # the inbound handler merged To+CC into to_addresses (entwirrung unmoeglich).
+    cc_addresses = Column(ARRAY(String), nullable=True)
+    bcc_addresses = Column(ARRAY(String), nullable=True)
     in_reply_to_header = Column(String(500), nullable=True)  # In-Reply-To header value
     routing_method = Column(String(50), nullable=True)  # reply_to_address, in_reply_to_header, body_reference, from_address_unique
     routing_id_parsed = Column(String(20), nullable=True, index=True)  # Parsed routing ID (e.g. "SC-A1221-42")

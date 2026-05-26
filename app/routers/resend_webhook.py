@@ -496,7 +496,9 @@ async def receive_resend_webhook(
         db=db,
     )
 
-    # Step 7: Store incoming email with RECEIVED status
+    # Step 7: Store incoming email with RECEIVED status.
+    # Phase 5.2 — keep the merged to_addresses (deterministic routing still reads it)
+    # AND persist the separate CC/BCC arrays so the portal full archive can show them.
     incoming_email = IncomingEmail(
         zendesk_ticket_id=email_data.message_id or email_data.email_id,  # Use message_id as reference
         zendesk_webhook_id=email_data.email_id,  # Resend email ID for dedup
@@ -506,6 +508,8 @@ async def receive_resend_webhook(
         raw_body_html=email_html,
         raw_body_text=email_text,
         to_addresses=all_to_addresses if all_to_addresses else None,
+        cc_addresses=list(email_data.cc) if email_data.cc else None,
+        bcc_addresses=list(email_data.bcc) if email_data.bcc else None,
         in_reply_to_header=in_reply_to,
         kanzlei_id=kanzlei_id,
         attachment_urls=[
