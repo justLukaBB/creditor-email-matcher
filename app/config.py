@@ -78,7 +78,16 @@ class Settings(BaseSettings):
 
     # Mandanten Portal Webhook (notify portal after MongoDB write)
     portal_webhook_url: Optional[str] = None  # e.g. https://portal.example.com/api/webhooks/matcher-response
-    portal_webhook_secret: Optional[str] = None  # HMAC-SHA256 signing secret
+    portal_webhook_secret: Optional[str] = None  # HMAC-SHA256 signing secret (legacy, body-only)
+    # Phase 5.3: Portal HMAC-shared-secret for X-Matcher-Signature / X-Matcher-Timestamp.
+    # Must be set IDENTICAL in both the matcher and the portal Render service.
+    matcher_portal_hmac_secret: Optional[str] = None
+    # Phase 5.4: Portal bounce-bridge endpoint. Derived from portal_webhook_url
+    # when unset (matcher-response → matcher-bounce).
+    portal_bounce_webhook_url: Optional[str] = None
+    # Phase 5.6: Default raw-EML mirror to GCS for forensic archival.
+    raw_eml_mirror_enabled: bool = True
+    gcs_raw_emails_prefix: str = "raw-emails"
 
     # Resend Inbound Email
     resend_api_key: Optional[str] = None  # Resend API key for fetching email content
