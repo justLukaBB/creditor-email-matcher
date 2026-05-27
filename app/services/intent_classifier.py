@@ -132,12 +132,12 @@ def classify_intent_with_llm(body: str, subject: str, email_id: int = None) -> I
         >>> print(result.intent, result.confidence)
         debt_statement 0.85
     """
-    # Lazy import to avoid import-time Anthropic SDK dependency
+    # Lazy import keeps provider SDKs optional at module import time.
     try:
-        from anthropic import Anthropic
         from app.config import settings
+        from app.services.llm import get_llm_client
     except ImportError:
-        logger.error("anthropic_sdk_not_installed")
+        logger.error("llm_adapter_unavailable")
         # Fallback: assume debt_statement with low confidence
         return IntentResult(
             intent=EmailIntent.debt_statement,
@@ -197,18 +197,19 @@ Antworte nur mit JSON:
     start_time = time.time()
 
     try:
-        # Use Claude Haiku (cheapest model for classification)
-        client = Anthropic(api_key=settings.anthropic_api_key)
-        response = client.messages.create(
-            model=model_name,
+        # Provider chosen by LLM_PROVIDER (claude=Haiku, vertex=Gemini Flash-Lite).
+        # claude_model preserves the DB-resolved Claude model on the legacy path.
+        client = get_llm_client("intent", claude_model=model_name)
+        response = client.generate(
+            prompt,
             max_tokens=max_tokens,
             temperature=temperature,
-            messages=[{"role": "user", "content": prompt}]
+            json_output=True,
         )
 
         # Parse JSON response
         import json
-        response_text = response.content[0].text.strip()
+        response_text = response.text.strip()
 
         # Extract JSON if wrapped in markdown code blocks
         if response_text.startswith("```"):
@@ -234,7 +235,7 @@ Antworte nur mit JSON:
         logger.info("intent_classified_llm",
                    intent=intent.value,
                    confidence=confidence,
-                   model=model_name)
+                   model=response.model)
 
         # Record metrics if prompt_template was used and email_id provided
         if prompt_template and db and email_id:
@@ -244,9 +245,9 @@ Antworte nur mit JSON:
                     db=db,
                     prompt_template_id=prompt_template.id,
                     email_id=email_id,
-                    input_tokens=response.usage.input_tokens,
-                    output_tokens=response.usage.output_tokens,
-                    model_name=model_name,
+                    input_tokens=response.input_tokens,
+                    output_tokens=response.output_tokens,
+                    model_name=response.model,
                     extraction_success=True,
                     confidence_score=confidence,
                     manual_review_required=False,
