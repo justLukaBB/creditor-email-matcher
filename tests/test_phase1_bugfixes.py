@@ -21,6 +21,8 @@ class TestEmptyBodyGuard:
 
     def setup_method(self):
         self.extractor = EntityExtractorClaude()
+        # Exercise extraction logic, not provider config: pretend a provider is ready.
+        self.extractor._provider_ready = lambda: True
 
     def test_empty_body_returns_no_extraction(self):
         """Empty email body should return is_creditor_reply=False, no API call."""
@@ -63,15 +65,15 @@ class TestEmptyBodyGuard:
         """Short body but with attachment text should still attempt extraction."""
         # This test verifies the guard is bypassed when attachments exist.
         # We mock the API call since the actual extraction requires API access.
-        with patch.object(self.extractor, 'client') as mock_client:
-            mock_response = MagicMock()
-            mock_response.content = [MagicMock(text='{"is_creditor_reply": true, "debt_amount": 1234.56, "confidence": 0.9, "reference_numbers": []}')]
-            mock_response.usage = MagicMock(input_tokens=100, output_tokens=50)
-            mock_client.messages.create.return_value = mock_response
+        with patch("app.services.entity_extractor_claude.get_llm_client") as mock_client:
+            mock_response = MagicMock(
+                text='{"is_creditor_reply": true, "debt_amount": 1234.56, "confidence": 0.9, "reference_numbers": []}',
+                input_tokens=100, output_tokens=50,
+            )
 
-            # Patch circuit breaker to pass through
+            # Circuit breaker returns the canned adapter response
             with patch('app.services.entity_extractor_claude.get_claude_breaker') as mock_breaker:
-                mock_breaker.return_value.call = lambda fn, **kwargs: fn(**kwargs)
+                mock_breaker.return_value.call.return_value = mock_response
 
                 result = self.extractor.extract_entities(
                     email_body="Kurz",  # Too short alone
@@ -88,19 +90,19 @@ class TestAmountSanityCheck:
 
     def setup_method(self):
         self.extractor = EntityExtractorClaude()
+        # Exercise extraction logic, not provider config: pretend a provider is ready.
+        self.extractor._provider_ready = lambda: True
 
     def test_implausible_amount_nullified(self):
         """Amount > 500k should be set to None after extraction."""
-        with patch.object(self.extractor, 'client') as mock_client:
-            mock_response = MagicMock()
-            mock_response.content = [MagicMock(
-                text='{"is_creditor_reply": true, "debt_amount": 25032026.0, "confidence": 0.8, "reference_numbers": []}'
-            )]
-            mock_response.usage = MagicMock(input_tokens=100, output_tokens=50)
-            mock_client.messages.create.return_value = mock_response
+        with patch("app.services.entity_extractor_claude.get_llm_client") as mock_client:
+            mock_response = MagicMock(
+                text='{"is_creditor_reply": true, "debt_amount": 25032026.0, "confidence": 0.8, "reference_numbers": []}',
+                input_tokens=100, output_tokens=50,
+            )
 
             with patch('app.services.entity_extractor_claude.get_claude_breaker') as mock_breaker:
-                mock_breaker.return_value.call = lambda fn, **kwargs: fn(**kwargs)
+                mock_breaker.return_value.call.return_value = mock_response
 
                 result = self.extractor.extract_entities(
                     email_body="Sehr geehrte Damen und Herren, die Forderung beträgt 25.032.026 EUR.",
@@ -111,16 +113,14 @@ class TestAmountSanityCheck:
 
     def test_plausible_amount_preserved(self):
         """Amount <= 500k should pass through."""
-        with patch.object(self.extractor, 'client') as mock_client:
-            mock_response = MagicMock()
-            mock_response.content = [MagicMock(
-                text='{"is_creditor_reply": true, "debt_amount": 1234.56, "confidence": 0.9, "reference_numbers": []}'
-            )]
-            mock_response.usage = MagicMock(input_tokens=100, output_tokens=50)
-            mock_client.messages.create.return_value = mock_response
+        with patch("app.services.entity_extractor_claude.get_llm_client") as mock_client:
+            mock_response = MagicMock(
+                text='{"is_creditor_reply": true, "debt_amount": 1234.56, "confidence": 0.9, "reference_numbers": []}',
+                input_tokens=100, output_tokens=50,
+            )
 
             with patch('app.services.entity_extractor_claude.get_claude_breaker') as mock_breaker:
-                mock_breaker.return_value.call = lambda fn, **kwargs: fn(**kwargs)
+                mock_breaker.return_value.call.return_value = mock_response
 
                 result = self.extractor.extract_entities(
                     email_body="Sehr geehrte Damen und Herren, die Gesamtforderung beträgt 1.234,56 EUR.",
@@ -130,16 +130,14 @@ class TestAmountSanityCheck:
 
     def test_amount_exactly_at_threshold_preserved(self):
         """Amount exactly at 500k should pass (boundary)."""
-        with patch.object(self.extractor, 'client') as mock_client:
-            mock_response = MagicMock()
-            mock_response.content = [MagicMock(
-                text='{"is_creditor_reply": true, "debt_amount": 500000.0, "confidence": 0.9, "reference_numbers": []}'
-            )]
-            mock_response.usage = MagicMock(input_tokens=100, output_tokens=50)
-            mock_client.messages.create.return_value = mock_response
+        with patch("app.services.entity_extractor_claude.get_llm_client") as mock_client:
+            mock_response = MagicMock(
+                text='{"is_creditor_reply": true, "debt_amount": 500000.0, "confidence": 0.9, "reference_numbers": []}',
+                input_tokens=100, output_tokens=50,
+            )
 
             with patch('app.services.entity_extractor_claude.get_claude_breaker') as mock_breaker:
-                mock_breaker.return_value.call = lambda fn, **kwargs: fn(**kwargs)
+                mock_breaker.return_value.call.return_value = mock_response
 
                 result = self.extractor.extract_entities(
                     email_body="Sehr geehrte Damen und Herren, die Restschuld beträgt 500.000,00 EUR.",

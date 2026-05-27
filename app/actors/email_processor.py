@@ -48,13 +48,24 @@ def should_retry(retries_so_far: int, exception: Exception) -> bool:
         OperationalError,
     )
 
-    # Try to import anthropic exceptions (may not be installed)
+    # Try to import provider SDK exceptions (may not be installed).
+    non_retryable_types = ()
+    # Anthropic (legacy / LLM_PROVIDER=claude)
     try:
         from anthropic import RateLimitError, BadRequestError
         retryable_types = retryable_types + (RateLimitError,)
-        non_retryable_types = (BadRequestError,)
+        non_retryable_types = non_retryable_types + (BadRequestError,)
     except ImportError:
-        non_retryable_types = ()
+        pass
+    # Google Vertex / Gemini (LLM_PROVIDER=vertex): 5xx is transient -> retry;
+    # 4xx is non-retryable here. The vertex client's rate limiter already
+    # retries transient 429 with backoff before it ever bubbles up.
+    try:
+        from google.genai.errors import ClientError, ServerError
+        retryable_types = retryable_types + (ServerError,)
+        non_retryable_types = non_retryable_types + (ClientError,)
+    except ImportError:
+        pass
 
     # Permanent failures - do not retry
     permanent_failures = (ValueError, KeyError) + non_retryable_types
