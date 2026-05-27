@@ -9,10 +9,10 @@ import logging
 from decimal import Decimal
 from typing import Optional, List, Tuple, Union
 
-from anthropic import Anthropic
 from app.config import settings
 from app.models.intent_classification import SettlementExtractionResult, SettlementDecision
 from app.services.monitoring.circuit_breakers import get_claude_breaker, CircuitBreakerError
+from app.services.llm import get_llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -50,11 +50,16 @@ class SettlementExtractor:
     """Classifies creditor responses to settlement proposals using Claude Haiku."""
 
     def __init__(self):
-        if not settings.anthropic_api_key:
-            logger.warning("Anthropic API key not configured - settlement extraction will fail")
-            self.client = None
-        else:
-            self.client = Anthropic(api_key=settings.anthropic_api_key)
+        # Provider/model selected per request in extract() via get_llm_client;
+        # _provider_ready() is the guard.
+        pass
+
+    @staticmethod
+    def _provider_ready() -> bool:
+        """True if the active LLM provider has the config it needs."""
+        if (settings.llm_provider or "claude").lower() == "vertex":
+            return bool(settings.google_cloud_project)
+        return bool(settings.anthropic_api_key)
 
     def extract(
         self,
@@ -63,27 +68,30 @@ class SettlementExtractor:
         subject: Optional[str] = None,
         attachment_texts: Optional[List[str]] = None,
     ) -> SettlementExtractionResult:
-        if not self.client:
-            logger.error("Anthropic client not initialized")
+        if not self._provider_ready():
+            logger.error("llm_provider_not_configured_settlement")
             return SettlementExtractionResult(
                 settlement_decision=SettlementDecision.no_clear_response,
                 confidence=0.0,
-                summary="Anthropic client not available",
+                summary="LLM provider not configured",
             )
 
         user_prompt = self._build_prompt(email_body, from_email, subject, attachment_texts)
         start_time = time.time()
 
         try:
+            # Money-critical path: Vertex gets response_schema for strict JSON
+            # (0% hallucinated-amount target). Breaker wraps the provider call.
+            client = get_llm_client("settlement", claude_model="claude-haiku-4-5-20251001")
             breaker = get_claude_breaker()
             try:
-                message = breaker.call(
-                    self.client.messages.create,
-                    model="claude-haiku-4-5-20251001",
+                response = breaker.call(
+                    client.generate,
+                    user_prompt,
+                    system=SETTLEMENT_SYSTEM_PROMPT,
                     max_tokens=512,
                     temperature=0.1,
-                    system=SETTLEMENT_SYSTEM_PROMPT,
-                    messages=[{"role": "user", "content": user_prompt}],
+                    response_schema=SettlementExtractionResult,
                 )
             except CircuitBreakerError:
                 logger.error("claude_circuit_open_settlement")
@@ -91,7 +99,7 @@ class SettlementExtractor:
 
             duration_ms = int((time.time() - start_time) * 1000)
 
-            raw = message.content[0].text.strip()
+            raw = response.text.strip()
             if raw.startswith("```"):
                 first_nl = raw.find("\n")
                 if first_nl != -1:
