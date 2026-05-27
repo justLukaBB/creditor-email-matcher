@@ -33,7 +33,7 @@ class Settings(BaseSettings):
 
     # --- Vertex AI (LLM EU-Migration) ---
     google_cloud_project: Optional[str] = None  # GCP project ID; required when llm_provider=vertex
-    vertex_ai_region: str = "europe-west3"       # Frankfurt; europe-west1 (Belgium) as fallback
+    vertex_ai_region: str = "europe-west1"       # Belgium (EU/DSGVO). NOTE: europe-west3/Frankfurt has no Gemini 2.5 for this project (verified 404) — do not switch back without checking model availability.
     # Per-call-site Gemini model IDs — tunable via ENV without a deploy.
     gemini_model_intent: str = "gemini-2.5-flash-lite"
     gemini_model_entity: str = "gemini-2.5-flash"
