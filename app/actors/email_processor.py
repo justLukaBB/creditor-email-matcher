@@ -764,11 +764,16 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
         email.processing_status = "extracting"
         db.commit()
 
-        # Choose LLM provider
-        if settings.llm_provider == "claude":
-            extractor = entity_extractor_claude
-        else:
+        # Choose entity-extraction provider.
+        # claude + vertex both flow through the adapter-backed extractor
+        # (entity_extractor_claude honors LLM_PROVIDER internally). The standalone
+        # OpenAI extractor is legacy (US sub-processor) and only reachable via an
+        # explicit LLM_PROVIDER=openai opt-in. Slated for removal in the Vertex
+        # migration cleanup PR. See docs/EMAIL-MATCHER-VERTEX-MIGRATION-PLAN.md
+        if settings.llm_provider == "openai":
             extractor = openai_extractor
+        else:
+            extractor = entity_extractor_claude
 
         # Get attachment texts from extraction result for entity extraction
         attachment_texts = extraction_result.get("attachment_texts", [])
