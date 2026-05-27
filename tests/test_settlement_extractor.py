@@ -1,5 +1,9 @@
 """
 Tests for the Settlement Extractor Service (2. Schreiben responses).
+
+After the Vertex migration the extractor talks to the provider-agnostic LLM
+adapter, so these tests mock at the adapter seam (get_llm_client) + the circuit
+breaker, and the breaker returns a normalized LLMResponse-like object (.text).
 """
 
 import json
@@ -15,17 +19,12 @@ class TestSettlementExtractor:
     """Unit tests for SettlementExtractor."""
 
     def _make_mock_response(self, result_dict: dict):
-        """Create a mock Anthropic API response."""
-        mock_msg = MagicMock()
-        mock_msg.content = [MagicMock(text=json.dumps(result_dict))]
-        mock_msg.usage = MagicMock(input_tokens=100, output_tokens=50)
-        return mock_msg
+        """Create a mock LLMResponse (adapter return shape)."""
+        return MagicMock(text=json.dumps(result_dict), input_tokens=100, output_tokens=50)
 
     @patch("app.services.settlement_extractor.get_claude_breaker")
-    @patch("app.services.settlement_extractor.Anthropic")
-    def test_accepted_response(self, mock_anthropic_cls, mock_breaker_fn):
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+    @patch("app.services.settlement_extractor.get_llm_client")
+    def test_accepted_response(self, mock_get_client, mock_breaker_fn):
         mock_breaker = MagicMock()
         mock_breaker_fn.return_value = mock_breaker
         mock_breaker.call.return_value = self._make_mock_response({
@@ -49,10 +48,8 @@ class TestSettlementExtractor:
         assert result.counter_offer_amount is None
 
     @patch("app.services.settlement_extractor.get_claude_breaker")
-    @patch("app.services.settlement_extractor.Anthropic")
-    def test_declined_response(self, mock_anthropic_cls, mock_breaker_fn):
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+    @patch("app.services.settlement_extractor.get_llm_client")
+    def test_declined_response(self, mock_get_client, mock_breaker_fn):
         mock_breaker = MagicMock()
         mock_breaker_fn.return_value = mock_breaker
         mock_breaker.call.return_value = self._make_mock_response({
@@ -74,10 +71,8 @@ class TestSettlementExtractor:
         assert result.confidence == 0.88
 
     @patch("app.services.settlement_extractor.get_claude_breaker")
-    @patch("app.services.settlement_extractor.Anthropic")
-    def test_counter_offer_response(self, mock_anthropic_cls, mock_breaker_fn):
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+    @patch("app.services.settlement_extractor.get_llm_client")
+    def test_counter_offer_response(self, mock_get_client, mock_breaker_fn):
         mock_breaker = MagicMock()
         mock_breaker_fn.return_value = mock_breaker
         mock_breaker.call.return_value = self._make_mock_response({
@@ -100,10 +95,8 @@ class TestSettlementExtractor:
         assert result.conditions == "Einmalzahlung innerhalb 30 Tagen"
 
     @patch("app.services.settlement_extractor.get_claude_breaker")
-    @patch("app.services.settlement_extractor.Anthropic")
-    def test_low_confidence_needs_review(self, mock_anthropic_cls, mock_breaker_fn):
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+    @patch("app.services.settlement_extractor.get_llm_client")
+    def test_low_confidence_needs_review(self, mock_get_client, mock_breaker_fn):
         mock_breaker = MagicMock()
         mock_breaker_fn.return_value = mock_breaker
         mock_breaker.call.return_value = self._make_mock_response({
@@ -124,10 +117,8 @@ class TestSettlementExtractor:
         assert result.confidence < 0.70
 
     @patch("app.services.settlement_extractor.get_claude_breaker")
-    @patch("app.services.settlement_extractor.Anthropic")
-    def test_no_clear_response_needs_review(self, mock_anthropic_cls, mock_breaker_fn):
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+    @patch("app.services.settlement_extractor.get_llm_client")
+    def test_no_clear_response_needs_review(self, mock_get_client, mock_breaker_fn):
         mock_breaker = MagicMock()
         mock_breaker_fn.return_value = mock_breaker
         mock_breaker.call.return_value = self._make_mock_response({
@@ -147,9 +138,10 @@ class TestSettlementExtractor:
 
         assert result.settlement_decision == SettlementDecision.no_clear_response
 
-    def test_no_api_key_returns_fallback(self):
+    def test_no_provider_configured_returns_fallback(self):
         with patch("app.services.settlement_extractor.settings") as mock_settings:
             mock_settings.anthropic_api_key = None
+            mock_settings.llm_provider = "claude"
             extractor = SettlementExtractor()
             result = extractor.extract(
                 email_body="test", from_email="test@example.de"
@@ -158,15 +150,11 @@ class TestSettlementExtractor:
             assert result.confidence == 0.0
 
     @patch("app.services.settlement_extractor.get_claude_breaker")
-    @patch("app.services.settlement_extractor.Anthropic")
-    def test_malformed_json_returns_fallback(self, mock_anthropic_cls, mock_breaker_fn):
-        mock_client = MagicMock()
-        mock_anthropic_cls.return_value = mock_client
+    @patch("app.services.settlement_extractor.get_llm_client")
+    def test_malformed_json_returns_fallback(self, mock_get_client, mock_breaker_fn):
         mock_breaker = MagicMock()
         mock_breaker_fn.return_value = mock_breaker
-        mock_msg = MagicMock()
-        mock_msg.content = [MagicMock(text="not valid json {{{")]
-        mock_breaker.call.return_value = mock_msg
+        mock_breaker.call.return_value = MagicMock(text="not valid json {{{")
 
         extractor = SettlementExtractor()
         result = extractor.extract(

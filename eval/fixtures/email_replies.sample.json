@@ -1,0 +1,14 @@
+[
+  {
+    "id": "sample-001-accept",
+    "subject": "AW: Schuldenbereinigungsplan Az. 123/26",
+    "body": "Sehr geehrte Damen und Herren,\n\nwir bestaetigen den Erhalt Ihres Schuldenbereinigungsplans und stimmen dem Vorschlag zu.\n\nMit freundlichen Gruessen\nMustermann Inkasso GmbH",
+    "from_email": "inkasso@example.de"
+  },
+  {
+    "id": "sample-002-counter",
+    "subject": "Ihre Forderung - Gegenvorschlag",
+    "body": "Guten Tag,\n\nwir koennen dem Plan nicht zustimmen. Wir schlagen stattdessen eine Einmalzahlung von 1.250,00 EUR vor.\n\nFreundliche Gruesse\nBeispielbank AG",
+    "from_email": "service@beispielbank.de"
+  }
+]

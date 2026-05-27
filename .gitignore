@@ -40,3 +40,8 @@ htmlcov/
 
 # Logs
 *.log
+
+# Eval fixtures — real creditor replies contain PII (names + amounts, kept
+# un-anonymized for realistic extraction tests). Never commit. Sample is OK.
+eval/fixtures/*.json
+!eval/fixtures/*.sample.json

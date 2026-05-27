@@ -229,9 +229,9 @@ class ImageExtractor:
                     else:
                         media_type = "image/jpeg"
 
-            # Read and encode image as base64
+            # Read raw image bytes; the LLM adapter base64-encodes per provider.
             with open(working_path, "rb") as f:
-                image_data = base64.standard_b64encode(f.read()).decode("utf-8")
+                image_bytes = f.read()
 
             # Try to load prompt from database
             prompt_text = IMAGE_EXTRACTION_PROMPT  # Hardcoded fallback
@@ -255,46 +255,35 @@ class ImageExtractor:
 
             start_time = time.time()
 
-            # Call Claude Vision API
-            message = self.claude_client.messages.create(
-                model="claude-sonnet-4-5-20250929",
+            # Call vision model via the LLM adapter (Claude image-block or
+            # Vertex Part.from_bytes, chosen by LLM_PROVIDER).
+            from app.services.llm import get_llm_client, MediaInput
+
+            client = get_llm_client("image")
+            response = client.generate(
+                prompt_text,
                 max_tokens=1024,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": media_type,
-                                    "data": image_data,
-                                },
-                            },
-                            {"type": "text", "text": prompt_text},
-                        ],
-                    }
-                ],
+                media=[MediaInput(data=image_bytes, mime_type=media_type)],
             )
 
             execution_time_ms = int((time.time() - start_time) * 1000)
 
             # Record token usage
-            tokens_used = message.usage.input_tokens + message.usage.output_tokens
+            tokens_used = response.input_tokens + response.output_tokens
             self.token_budget.add_usage(
-                message.usage.input_tokens, message.usage.output_tokens
+                response.input_tokens, response.output_tokens
             )
             result.tokens_used = tokens_used
 
             log.info(
                 "claude_vision_response",
-                input_tokens=message.usage.input_tokens,
-                output_tokens=message.usage.output_tokens,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
                 total_tokens=tokens_used,
             )
 
             # Parse response
-            parsed_result = self._parse_response(message.content[0].text, result)
+            parsed_result = self._parse_response(response.text, result)
 
             # Record metrics if prompt_template was used
             if prompt_template and self.db and self.email_id:
@@ -303,9 +292,9 @@ class ImageExtractor:
                         db=self.db,
                         prompt_template_id=prompt_template.id,
                         email_id=self.email_id,
-                        input_tokens=message.usage.input_tokens,
-                        output_tokens=message.usage.output_tokens,
-                        model_name='claude-sonnet-4-5-20250929',
+                        input_tokens=response.input_tokens,
+                        output_tokens=response.output_tokens,
+                        model_name=response.model,
                         extraction_success=parsed_result.gesamtforderung is not None,
                         confidence_score=None,  # Image extraction doesn't have confidence score
                         manual_review_required=False,

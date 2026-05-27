@@ -6,9 +6,9 @@ Uses Claude 3.5 Sonnet to extract structured data from creditor emails
 import json
 import time
 from typing import Dict, Optional, List, TYPE_CHECKING
-from anthropic import Anthropic
 from pydantic import BaseModel, Field
 from app.config import settings
+from app.services.llm import get_llm_client
 from app.services.prompt_manager import get_active_prompt
 from app.services.prompt_renderer import PromptRenderer
 from app.services.prompt_metrics_service import record_extraction_metrics
@@ -63,11 +63,16 @@ class EntityExtractorClaude:
     """
 
     def __init__(self):
-        if not settings.anthropic_api_key:
-            logger.warning("Anthropic API key not configured - entity extraction will fail")
-            self.client = None
-        else:
-            self.client = Anthropic(api_key=settings.anthropic_api_key)
+        # The concrete provider/model is selected per request in
+        # extract_entities (get_llm_client); _provider_ready() is the guard.
+        pass
+
+    @staticmethod
+    def _provider_ready() -> bool:
+        """True if the active LLM provider has the config it needs."""
+        if (settings.llm_provider or "claude").lower() == "vertex":
+            return bool(settings.google_cloud_project)
+        return bool(settings.anthropic_api_key)
 
     # Minimum body length for meaningful extraction (avoids hallucinated amounts)
     MIN_BODY_LENGTH = 20
@@ -97,8 +102,8 @@ class EntityExtractorClaude:
         Returns:
             ExtractedEntities object with extracted data
         """
-        if not self.client:
-            logger.error("Anthropic client not initialized - returning empty result")
+        if not self._provider_ready():
+            logger.error("llm_provider_not_configured - returning empty result")
             return ExtractedEntities(
                 is_creditor_reply=False,
                 confidence=0.0
@@ -168,21 +173,19 @@ class EntityExtractorClaude:
             max_tokens = prompt_template.max_tokens if prompt_template else 1024
             temperature = prompt_template.temperature if prompt_template and prompt_template.temperature is not None else 0.1
 
-            # Wrap Claude API call with circuit breaker
+            # Provider chosen by LLM_PROVIDER; claude_model keeps the legacy
+            # DB-resolved Claude model. Vertex uses response_schema for native
+            # structured JSON. Circuit breaker wraps the provider call.
+            client = get_llm_client("entity", claude_model=model_name)
             breaker = get_claude_breaker()
             try:
-                message = breaker.call(
-                    self.client.messages.create,
-                    model=model_name,
+                response = breaker.call(
+                    client.generate,
+                    user_template,
+                    system=system_prompt,
                     max_tokens=max_tokens,
                     temperature=temperature,
-                    system=system_prompt,
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": user_template
-                        }
-                    ]
+                    response_schema=ExtractedEntities,
                 )
             except CircuitBreakerError:
                 logger.error("claude_circuit_open", email_id=email_id)
@@ -191,7 +194,7 @@ class EntityExtractorClaude:
             execution_time_ms = int((time.time() - start_time) * 1000)
 
             # Parse the response
-            result_text = message.content[0].text
+            result_text = response.text
 
             # Strip markdown code blocks if present (```json ... ```)
             cleaned_text = result_text.strip()
@@ -232,9 +235,9 @@ class EntityExtractorClaude:
                         db=db,
                         prompt_template_id=prompt_template.id,
                         email_id=email_id,
-                        input_tokens=message.usage.input_tokens,
-                        output_tokens=message.usage.output_tokens,
-                        model_name=model_name,
+                        input_tokens=response.input_tokens,
+                        output_tokens=response.output_tokens,
+                        model_name=response.model,
                         extraction_success=entities.is_creditor_reply,
                         confidence_score=entities.confidence,
                         manual_review_required=entities.confidence < 0.6,
