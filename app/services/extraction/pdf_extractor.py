@@ -454,9 +454,9 @@ class PDFExtractor:
             # Close doc before reading file (release file handle)
             doc.close()
 
-            # Read PDF as base64
+            # Read raw PDF bytes; the LLM adapter base64-encodes per provider.
             with open(pdf_path, "rb") as f:
-                pdf_data = base64.standard_b64encode(f.read()).decode("utf-8")
+                pdf_bytes = f.read()
 
             # Try to load prompt from database
             prompt_text = EXTRACTION_PROMPT  # Hardcoded fallback
@@ -474,52 +474,41 @@ class PDFExtractor:
             log.info(
                 "calling_claude_vision",
                 estimated_tokens=estimated_tokens,
-                pdf_size_bytes=len(pdf_data) * 3 // 4,  # Base64 is ~4/3 original size
+                pdf_size_bytes=len(pdf_bytes),
                 using_db_prompt=prompt_template is not None
             )
 
             start_time = time.time()
 
-            # Call Claude Vision API
-            message = self.claude_client.messages.create(
-                model="claude-sonnet-4-5-20250929",
+            # Call vision model via the LLM adapter (Claude document-block or
+            # Vertex Part.from_bytes, chosen by LLM_PROVIDER).
+            from app.services.llm import get_llm_client, MediaInput
+
+            client = get_llm_client("pdf")
+            response = client.generate(
+                prompt_text,
                 max_tokens=2048,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "document",
-                                "source": {
-                                    "type": "base64",
-                                    "media_type": "application/pdf",
-                                    "data": pdf_data,
-                                },
-                            },
-                            {"type": "text", "text": prompt_text},
-                        ],
-                    }
-                ],
+                media=[MediaInput(data=pdf_bytes, mime_type="application/pdf")],
             )
 
             execution_time_ms = int((time.time() - start_time) * 1000)
 
             # Record token usage
-            tokens_used = message.usage.input_tokens + message.usage.output_tokens
+            tokens_used = response.input_tokens + response.output_tokens
             self.token_budget.add_usage(
-                message.usage.input_tokens, message.usage.output_tokens
+                response.input_tokens, response.output_tokens
             )
 
             log.info(
                 "claude_vision_response",
-                input_tokens=message.usage.input_tokens,
-                output_tokens=message.usage.output_tokens,
+                input_tokens=response.input_tokens,
+                output_tokens=response.output_tokens,
                 total_tokens=tokens_used,
             )
 
             # Parse response
             result = self._parse_claude_response(
-                response_text=message.content[0].text,
+                response_text=response.text,
                 source_name=source_name,
                 tokens_used=tokens_used,
             )
@@ -531,9 +520,9 @@ class PDFExtractor:
                         db=self.db,
                         prompt_template_id=prompt_template.id,
                         email_id=self.email_id,
-                        input_tokens=message.usage.input_tokens,
-                        output_tokens=message.usage.output_tokens,
-                        model_name='claude-sonnet-4-5-20250929',
+                        input_tokens=response.input_tokens,
+                        output_tokens=response.output_tokens,
+                        model_name=response.model,
                         extraction_success=result.gesamtforderung is not None,
                         confidence_score=None,  # PDF extraction doesn't have confidence score
                         manual_review_required=False,
