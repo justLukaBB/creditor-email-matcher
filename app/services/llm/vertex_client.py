@@ -74,6 +74,22 @@ class VertexClient(LLMClient):
         elif json_output:
             config_kwargs["response_mime_type"] = "application/json"
 
+        # gemini-2.5-pro emits mandatory internal "thinking" tokens that are
+        # billed against max_output_tokens and CANNOT be disabled. Call sites
+        # size max_tokens for the answer only (these values were tuned for
+        # Claude, which has no thinking). Without headroom the thinking consumes
+        # the whole budget and the structured answer truncates
+        # (finish_reason=MAX_TOKENS) -> JSON parse fails. Bound the thinking
+        # budget and add it on top so the answer always keeps its full
+        # max_tokens. flash / flash-lite are left untouched (thinking off or
+        # negligible there).
+        if "pro" in self.model:
+            thinking_budget = 2048  # measured pro thinking ~500-900; generous ceiling
+            config_kwargs["thinking_config"] = types.ThinkingConfig(
+                thinking_budget=thinking_budget
+            )
+            config_kwargs["max_output_tokens"] = max_tokens + thinking_budget
+
         config = types.GenerateContentConfig(**config_kwargs)
 
         response = generate_content_with_retry_sync(
