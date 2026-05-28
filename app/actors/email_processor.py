@@ -352,7 +352,26 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
             creditor_name = matched_inquiry.creditor_name or email.from_email
             client_aktenzeichen = matched_inquiry.reference_number
 
-            if email_body_for_extraction:
+            # Pull PDF/DOCX/XLSX text from attachments so the entity extractor
+            # can see counter-offers / amounts that creditors put only in the
+            # attached letter, not in the email body. Same helper the 2.-Schreiben
+            # path uses; best-effort, returns None if no attachments.
+            deterministic_attachment_texts = _extract_attachment_texts_for_email(email)
+            if deterministic_attachment_texts:
+                logger.info("deterministic_attachment_texts_extracted", extra={
+                    "email_id": email_id,
+                    "count": len(deterministic_attachment_texts),
+                })
+                # Persist the URL enrichment done by the helper so downstream
+                # notify_creditor_response forwards GCS / download URLs.
+                try:
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(email, "attachment_urls")
+                except Exception:
+                    pass
+                db.commit()
+
+            if email_body_for_extraction or deterministic_attachment_texts:
                 try:
                     extracted_entities = entity_extractor_claude.extract_entities(
                         email_body=email_body_for_extraction,
@@ -360,6 +379,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                         subject=email.subject,
                         email_id=email_id,
                         db=db,
+                        attachment_texts=deterministic_attachment_texts,
                     )
                     if extracted_entities:
                         new_debt_amount = extracted_entities.debt_amount
@@ -378,6 +398,7 @@ def process_email(email_id: int, correlation_id: str = None) -> None:
                         "email_id": email_id, "error": str(extract_err),
                         "error_type": type(extract_err).__name__,
                         "body_length": len(email_body_for_extraction) if email_body_for_extraction else 0,
+                        "attachment_count": len(deterministic_attachment_texts) if deterministic_attachment_texts else 0,
                     })
 
             # Determine letter type.
