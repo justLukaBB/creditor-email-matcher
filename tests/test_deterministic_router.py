@@ -62,6 +62,43 @@ def _make_inquiry(id=1, routing_id="SC-A1221-42", resend_message_id=None,
     return inquiry
 
 
+class _FakeQuery:
+    """Minimal SQLAlchemy-query stand-in that records filter arity and returns
+    a pre-seeded result list per .all() call (popped in order)."""
+
+    def __init__(self, result_lists, filter_arities):
+        self._result_lists = result_lists
+        self._filter_arities = filter_arities
+
+    def filter(self, *conditions):
+        self._filter_arities.append(len(conditions))
+        return self
+
+    def order_by(self, *a):
+        return self
+
+    def limit(self, n):
+        return self
+
+    def all(self):
+        return self._result_lists.pop(0) if self._result_lists else []
+
+
+class _FakeDB:
+    """Returns successive result lists across .query().filter()...all() chains.
+
+    Lets a test distinguish the client_hash-bound query (more filter conditions)
+    from the unbound legacy retry, which a blanket MagicMock cannot.
+    """
+
+    def __init__(self, result_lists):
+        self._result_lists = list(result_lists)
+        self.filter_arities = []
+
+    def query(self, *a):
+        return _FakeQuery(self._result_lists, self.filter_arities)
+
+
 class TestReplyToPattern:
     """Test the Reply-To regex pattern."""
 
@@ -714,3 +751,87 @@ class TestV1BugfixesPhase1:
         # `message_id` parameter removed — Stage 2 uses `in_reply_to` exclusively
         assert "message_id" not in sig.parameters
 
+
+
+class TestCombinedRefV2ClientBinding:
+    """Regression: combined-ref V2 must bind to the client and never guess.
+
+    Bug (2026-06): Otto's 2.-Schreiben reply quoting "4233/NE-04-2" was booked
+    onto Telekom. _lookup_by_combined_ref_v2 filtered only on
+    (kanzlei_prefix, creditor_idx, letter_type) — no client binding — and on a
+    failed Aktenzeichen match fell back to "most recent inquiry wins", which
+    picked a same-index creditor of a *different* client.
+    """
+
+    def test_client_hash_from_aktenzeichen_matches_portal(self):
+        """MUST equal routingId.js:clientHashFromAktenzeichen (locked vectors)."""
+        from app.services.deterministic_router import client_hash_from_aktenzeichen
+        assert client_hash_from_aktenzeichen("2025-00042") == "rq1b"
+        assert client_hash_from_aktenzeichen("4233") == "5210"
+        assert client_hash_from_aktenzeichen("AZ-1221/26") == "kri9"
+        assert client_hash_from_aktenzeichen("NE-0001") == "rlwi"
+
+    def test_client_hash_binds_to_correct_creditor(self):
+        otto = _make_inquiry(id=10, creditor_name="Otto GmbH",
+                             creditor_email="info@otto.de",
+                             reference_number="4233", letter_type="second")
+        db = _FakeDB([[otto]])  # client_hash-bound query returns only Otto
+        router = DeterministicRouter(db, kanzlei_id="ne")
+        result = router._lookup_by_combined_ref_v2(
+            kanzlei_prefix="NE", creditor_idx=4, letter_type="second",
+            aktenzeichen="4233",
+        )
+        assert result is otto
+        # First query must carry the extra client_hash condition (base 4 +
+        # kanzlei_id 1 + client_hash 1 = 6) — proves the client binding fired.
+        assert db.filter_arities[0] == 6
+
+    def test_no_guess_when_az_does_not_bind(self):
+        # client_hash("4233") matches nothing; most-recent idx-4 is Telekom of
+        # a different client. Old code returned Telekom; new code must not guess.
+        telekom = _make_inquiry(id=20, creditor_name="Telekom AG",
+                                creditor_email="kundenservice@telekom.de",
+                                reference_number="9999", letter_type="second")
+        db = _FakeDB([[], [telekom]])  # bound -> [], unbound -> [telekom]
+        router = DeterministicRouter(db, kanzlei_id="ne")
+        result = router._lookup_by_combined_ref_v2(
+            kanzlei_prefix="NE", creditor_idx=4, letter_type="second",
+            aktenzeichen="4233",
+        )
+        assert result is None
+
+    def test_legacy_exact_az_match_when_client_hash_null(self):
+        # Pre-client_hash V2 row: bound query empty, exact AZ uniquely matches.
+        otto = _make_inquiry(id=30, creditor_name="Otto GmbH",
+                             reference_number="4233", letter_type="second")
+        db = _FakeDB([[], [otto]])
+        router = DeterministicRouter(db, kanzlei_id="ne")
+        result = router._lookup_by_combined_ref_v2(
+            kanzlei_prefix="NE", creditor_idx=4, letter_type="second",
+            aktenzeichen="4233",
+        )
+        assert result is otto
+
+    def test_legacy_ambiguous_exact_az_returns_none(self):
+        # Two rows both with reference_number "4233" → ambiguous → never guess.
+        a = _make_inquiry(id=40, reference_number="4233", letter_type="second")
+        b = _make_inquiry(id=41, reference_number="4233", letter_type="second")
+        db = _FakeDB([[], [a, b]])
+        router = DeterministicRouter(db, kanzlei_id="ne")
+        result = router._lookup_by_combined_ref_v2(
+            kanzlei_prefix="NE", creditor_idx=4, letter_type="second",
+            aktenzeichen="4233",
+        )
+        assert result is None
+
+    def test_stage_subject_no_match_propagates(self):
+        # End-to-end through Stage 3.5: an unbindable combined ref yields no
+        # deterministic match, so the email falls through to fuzzy/manual review.
+        telekom = _make_inquiry(id=20, creditor_name="Telekom AG",
+                                reference_number="9999", letter_type="second")
+        db = _FakeDB([[], [telekom]])
+        router = DeterministicRouter(db, kanzlei_id="ne")
+        result = router._stage_subject_reference(
+            subject="Re: 4233/NE-04-2", body_text=None, body_html=None,
+        )
+        assert result.matched is False
