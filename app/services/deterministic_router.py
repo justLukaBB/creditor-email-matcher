@@ -15,6 +15,7 @@ straight to confidence routing / dual-write.
 """
 
 import re
+import hashlib
 import logging
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any
@@ -112,6 +113,34 @@ def parse_routing_id_v2(routing_id: str) -> Optional[Dict[str, Any]]:
         "client_hash": m.group(4).lower(),
         "rand": m.group(5).lower(),
     }
+
+
+def _int_to_base36(n: int) -> str:
+    """Encode a non-negative int as lowercase base36 (mirrors JS Number.toString(36))."""
+    if n == 0:
+        return "0"
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    out = ""
+    while n > 0:
+        n, r = divmod(n, 36)
+        out = digits[r] + out
+    return out
+
+
+def client_hash_from_aktenzeichen(aktenzeichen: str) -> str:
+    """Deterministic 4-char base36 client hash from an Aktenzeichen.
+
+    MUST stay byte-for-byte identical to the portal's
+    routingId.js:clientHashFromAktenzeichen — it is the SAME value baked into V2
+    routing IDs at send time. Algorithm: SHA-256(az) -> first 24 bits (6 hex
+    chars) -> base36 -> left-pad to 4 -> take last 4.
+
+    This lets the combined-reference lookup ({AZ}/{PREFIX}-{IDX}-{LETTER}, which
+    omits the client_hash segment) recover the client binding from the AZ alone.
+    """
+    digest = hashlib.sha256(str(aktenzeichen).encode("utf-8")).hexdigest()
+    as_int = int(digest[:6], 16)
+    return _int_to_base36(as_int).rjust(4, "0")[-4:]
 
 
 class DeterministicRouter:
@@ -464,30 +493,75 @@ class DeterministicRouter:
         letter_type: str,
         aktenzeichen: str = "",
     ) -> Optional[CreditorInquiry]:
-        """V2 combined-ref lookup (no client_hash — resolve via aktenzeichen match)."""
-        query = self.db.query(CreditorInquiry).filter(
+        """V2 combined-ref lookup, bound to the client via client_hash.
+
+        The combined reference ({AZ}/{PREFIX}-{IDX}-{LETTER}) does not carry the
+        client_hash segment, but client_hash is a deterministic function of the
+        Aktenzeichen (the same value the portal bakes into the V2 routing ID at
+        send time). We recompute it from the AZ and filter on it, so two
+        creditors that share (kanzlei, creditor_idx, letter) across DIFFERENT
+        clients can never collide.
+
+        This method NEVER guesses. If the (kanzlei, creditor_idx, letter, client)
+        tuple does not resolve to an inquiry we can attribute with confidence, it
+        returns None and lets the caller fall through to from-address / fuzzy
+        matching (which routes ambiguity to manual review). The previous
+        "most recent inquiry wins" fallback silently mis-attributed replies to a
+        same-index creditor of a *different* client.
+        """
+        base_conditions = [
             CreditorInquiry.kanzlei_prefix == kanzlei_prefix,
             CreditorInquiry.creditor_idx_snapshot == creditor_idx,
             CreditorInquiry.letter_type == letter_type,
             CreditorInquiry.routing_id_version == "v2",
-        )
+        ]
         if self.kanzlei_id:
-            query = query.filter(CreditorInquiry.kanzlei_id == self.kanzlei_id)
+            base_conditions.append(CreditorInquiry.kanzlei_id == self.kanzlei_id)
 
-        candidates = query.order_by(CreditorInquiry.sent_at.desc()).limit(50).all()
-        if not candidates:
+        def _run(conditions):
+            return (
+                self.db.query(CreditorInquiry)
+                .filter(*conditions)
+                .order_by(CreditorInquiry.sent_at.desc())
+                .limit(50)
+                .all()
+            )
+
+        az = (aktenzeichen or "").strip()
+        if az:
+            client_hash = client_hash_from_aktenzeichen(az)
+            bound = _run(base_conditions + [CreditorInquiry.client_hash == client_hash])
+            if bound:
+                # All rows share (client, creditor_idx, letter) -> same creditor.
+                # Re-sends / resyncs are the only reason for >1; newest is safe.
+                return bound[0]
+
+            # Legacy transition window: V2 inquiry rows synced before client_hash
+            # was populated. Accept ONLY a unique, EXACT Aktenzeichen match —
+            # never a substring or most-recent guess.
+            candidates = _run(base_conditions)
+            az_norm = az.lower()
+            exact = [
+                c for c in candidates
+                if (c.reference_number or "").strip().lower() == az_norm
+            ]
+            if len(exact) == 1:
+                return exact[0]
+            logger.info("combined_ref_v2_unresolved", extra={
+                "kanzlei_prefix": kanzlei_prefix,
+                "creditor_idx": creditor_idx,
+                "letter_type": letter_type,
+                "aktenzeichen": az,
+                "client_hash": client_hash,
+                "candidates": len(candidates),
+                "exact_az_matches": len(exact),
+            })
             return None
-        if len(candidates) == 1 or not aktenzeichen:
-            return candidates[0]
 
-        # Disambiguate by aktenzeichen when multiple matches exist
-        az_norm = aktenzeichen.strip().lower()
-        for inq in candidates:
-            ref = (inq.reference_number or "").strip().lower()
-            if ref and (ref == az_norm or ref in az_norm or az_norm in ref):
-                return inq
-        # Fallback to most recent
-        return candidates[0]
+        # No Aktenzeichen captured (COMBINED_REF_V2_PATTERN always captures one,
+        # so this is defensive): only safe when there is a single candidate.
+        candidates = _run(base_conditions)
+        return candidates[0] if len(candidates) == 1 else None
 
     def _lookup_by_combined_ref(
         self, kanzlei_prefix: str, position: int, aktenzeichen: str = ""
